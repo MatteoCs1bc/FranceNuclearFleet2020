@@ -1,7 +1,10 @@
 """
-streamlit_app.py — Nuclear Fleet Analyzer
-Entry point per Streamlit (compatibile con Streamlit Community Cloud).
+Nuclear Fleet Analyzer — Analisi della modulazione del parco nucleare francese
+Capacity factor, load-following e limiti di modulazione (reattore singolo e flotta).
 
+Sviluppato da Matteo De Piccoli — Ci Sarà un Bel Clima (https://unbelclima.it/)
+
+Entry point per Streamlit (compatibile con Streamlit Community Cloud).
 Uso:
     streamlit run streamlit_app.py
 """
@@ -156,6 +159,14 @@ def _find_repo_data():
 
 def sidebar_controls():
     st.sidebar.title("⚛️ Fleet Analyzer")
+    st.sidebar.markdown(
+        "<div style='font-size:0.8em; color:#888; margin-top:-8px; margin-bottom:8px;'>"
+        "Sviluppato da <b>Matteo De Piccoli</b><br>"
+        "<a href='https://unbelclima.it/' target='_blank' "
+        "style='color:#16A34A; text-decoration:none;'>🌍 Ci Sarà un Bel Clima</a>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     if st.sidebar.button("🔄 Ricarica dati (svuota cache)"):
         st.cache_data.clear()
