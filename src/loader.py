@@ -126,12 +126,11 @@ def load_production(content: bytes, reactor: str) -> pd.DataFrame:
     """
     df = pd.read_csv(io.BytesIO(content))
     df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
-    df["production_MW"] = df["production"].apply(parse_power)
+    df["production_MW"] = df["production"].apply(parse_power).astype("float32")
     df = df.dropna(subset=["Time", "production_MW"]).sort_values("Time")
     df = df.set_index("Time")
-    df["production_MW_pos"] = df["production_MW"].clip(lower=0)
-    df["reactor"] = reactor
-    return df[["reactor", "production_MW", "production_MW_pos"]]
+    df["production_MW_pos"] = df["production_MW"].clip(lower=0).astype("float32")
+    return df[["production_MW", "production_MW_pos"]]
 
 
 def load_unavailabilities(content: bytes, reactor: str) -> pd.DataFrame:
