@@ -144,6 +144,7 @@ def diurnal_signature(hourly: pd.DataFrame) -> pd.DataFrame:
         ramp_MW=("ramp_MW_h", "mean"),
     ).reset_index()
     g["ramp_pct"] = g["ramp_MW"] / nominal * 100
+    g["ramp_pct_min"] = g["ramp_pct"] / 60
     return g
 
 
@@ -183,6 +184,7 @@ def modulation_limits(hourly: pd.DataFrame) -> dict:
 
     return {
         "max_ramp_rate_pct_h": online["rate_pct_h"].abs().max() if not online.empty else 0,
+        "max_ramp_rate_pct_min": (online["rate_pct_h"].abs().max() / 60) if not online.empty else 0,
         "max_sustained_ramp_h": int(online["duration_h"].max()) if not online.empty else 0,
         "max_depth_pct": (100 - min_online_pct) if pd.notna(min_online_pct) else 0,
         "max_cycles_day": int(daily["n_cycles"].max()) if not daily.empty else 0,
