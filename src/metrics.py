@@ -112,12 +112,15 @@ def build_all_hourly(
     hourly_by_reactor: dict[str, pd.DataFrame] = {}
     nominal_by_reactor: dict[str, float] = {}
 
-    for reactor, pdf in prod_data.items():
+    # Consumo prod_data man mano (pop) per non tenere in RAM grezzo + orario insieme
+    for reactor in list(prod_data.keys()):
+        pdf = prod_data.pop(reactor)
         nominal = estimate_nominal(pdf)
         nominal_by_reactor[reactor] = nominal
         hourly_by_reactor[reactor] = build_hourly_frame(
             pdf, unavail_data.get(reactor), nominal
         )
+        del pdf
 
     return hourly_by_reactor, nominal_by_reactor
 
