@@ -83,9 +83,11 @@ def build_hourly_frame(
     nominal_MW: float,
 ) -> pd.DataFrame:
     """
-    Costruisce il DataFrame orario completo per un reattore:
-      production_MW, production_MW_pos, availability_MW, nominal_MW,
-      event_type, ramp_MW_h, cf_nominal, cf_available, unused_MW
+    Costruisce il DataFrame orario per un reattore, ottimizzato per memoria:
+      production_MW_pos, availability_MW, nominal_MW (float32),
+      event_type (category), ramp_MW_h (float32).
+    Le colonne cf_*, unused_MW e production_MW grezza NON sono conservate
+    (ricalcolate al volo dove servono) per ridurre l'impronta di memoria.
     """
     df = prod_df.copy()
 
@@ -98,15 +100,15 @@ def build_hourly_frame(
     df["production_MW_pos"] = df["production_MW_pos"].interpolate(limit=3).clip(lower=0)
     df.loc[outliers, "production_MW"] = df.loc[outliers, "production_MW_pos"]
 
-    df["availability_MW"] = reconstruct_availability(prod_df, unavail_df, nominal_MW)
-    df["nominal_MW"] = nominal_MW
-    df["event_type"] = label_event_type(prod_df, unavail_df)
+    # ramp calcolato sulla produzione grezza (con negativi), poi la grezza si scarta
+    ramp = df["production_MW"].diff()
+    availability = reconstruct_availability(prod_df, unavail_df, nominal_MW)
+    event_type = label_event_type(prod_df, unavail_df)
 
-    df["ramp_MW_h"] = df["production_MW"].diff()
-    df["cf_nominal"] = df["production_MW_pos"] / nominal_MW * 100
-    # CF su disponibile: evita divisione per ~0 durante outage completi
-    denom = df["availability_MW"].where(df["availability_MW"] > 1)
-    df["cf_available"] = (df["production_MW_pos"] / denom * 100).clip(upper=150)
-    df["unused_MW"] = df["availability_MW"] - df["production_MW_pos"]
-
-    return df
+    out = pd.DataFrame(index=df.index)
+    out["production_MW_pos"] = df["production_MW_pos"].astype("float32")
+    out["availability_MW"] = availability.astype("float32")
+    out["nominal_MW"] = np.float32(nominal_MW)
+    out["ramp_MW_h"] = ramp.astype("float32")
+    out["event_type"] = event_type.astype("category")
+    return out
