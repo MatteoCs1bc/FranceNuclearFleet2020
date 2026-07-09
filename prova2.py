@@ -162,6 +162,8 @@ def sidebar_controls():
     st.sidebar.markdown(
         "<div style='font-size:0.8em; color:#888; margin-top:-8px; margin-bottom:8px;'>"
         "Sviluppato da <b>Matteo De Piccoli</b><br>"
+        "Autore di <a href='https://www.peoplepub.it/pagina-prodotto/avete-rotto-l-atomo' "
+        "target='_blank' style='color:#888;'><i>Avete rotto l'atomo</i></a><br>"
         "<a href='https://unbelclima.it/' target='_blank' "
         "style='color:#16A34A; text-decoration:none;'>🌍 Ci Sarà un Bel Clima</a>"
         "</div>",
