@@ -59,7 +59,7 @@ def _style_gradient(df, subset=None, vmin=0, vmax=100):
 
 st.set_page_config(
     page_title="⚛️ Nuclear Fleet Analyzer",
-    page_icon="⚛️",
+    #page_icon="⚛️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
