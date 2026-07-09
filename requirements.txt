@@ -1,9 +1,0 @@
-streamlit>=1.35.0
-pandas>=2.0.0
-numpy>=1.24.0
-plotly>=5.18.0
-# Rete di sicurezza: se sul server resta del codice vecchio con
-# .style.background_gradient(), pandas richiede matplotlib. Il codice nuovo
-# usa una colorazione in puro Python e non ne ha bisogno, ma tenerlo qui
-# evita crash da disallineamenti di file durante gli upload.
-matplotlib>=3.7.0
