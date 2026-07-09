@@ -670,13 +670,13 @@ def lf_diurnal_profile(hourly: pd.DataFrame) -> go.Figure:
         fill="tozeroy", fillcolor="rgba(37,99,235,0.12)",
     ), secondary_y=False)
     fig.add_trace(go.Bar(
-        x=d["hour"], y=d["ramp_pct"], name="Rampa media (% Pnom/h)",
-        marker_color=["#EA580C" if v >= 0 else "#9333EA" for v in d["ramp_pct"]],
+        x=d["hour"], y=d["ramp_pct_min"], name="Rampa media (% Pnom/min)",
+        marker_color=["#EA580C" if v >= 0 else "#9333EA" for v in d["ramp_pct_min"]],
         opacity=0.6,
     ), secondary_y=True)
     fig.update_xaxes(title_text="Ora del giorno", tickmode="linear", dtick=2)
     fig.update_yaxes(title_text="Produzione (% Pnom)", secondary_y=False, range=[0, 100])
-    fig.update_yaxes(title_text="Rampa media (% Pnom/h)", secondary_y=True)
+    fig.update_yaxes(title_text="Rampa media (% Pnom/min)", secondary_y=True)
     fig.update_layout(height=340, margin=dict(t=10, b=30),
                       legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
     return fig
