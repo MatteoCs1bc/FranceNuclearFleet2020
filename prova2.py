@@ -1,7 +1,10 @@
 """
-streamlit_app.py — Nuclear Fleet Analyzer
-Entry point per Streamlit (compatibile con Streamlit Community Cloud).
+Nuclear Fleet Analyzer — Analisi della modulazione del parco nucleare francese
+Capacity factor, load-following e limiti di modulazione (reattore singolo e flotta).
 
+Sviluppato da Matteo De Piccoli — Ci Sarà un Bel Clima (https://unbelclima.it/)
+
+Entry point per Streamlit (compatibile con Streamlit Community Cloud).
 Uso:
     streamlit run streamlit_app.py
 """
@@ -156,6 +159,23 @@ def _find_repo_data():
 
 def sidebar_controls():
     st.sidebar.title("⚛️ Fleet Analyzer")
+    st.sidebar.markdown(
+        "<div style='font-size:0.8em; color:#888; margin-top:-8px; margin-bottom:8px;'>"
+        "Sviluppato da <b>Matteo De Piccoli</b><br>"
+        "Autore di <a href='https://www.peoplepub.it/pagina-prodotto/avete-rotto-l-atomo' "
+        "target='_blank' style='color:#888;'><i>Avete rotto l'atomo</i></a><br>"
+        "<a href='https://unbelclima.it/' target='_blank' "
+        "style='color:#16A34A; text-decoration:none;'>🌍 Ci Sarà un Bel Clima</a>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    with st.sidebar.expander("🏭 Cosa sono i palier"):
+        try:
+            _paliers_md = (Path(__file__).resolve().parent / "PALIERS.md").read_text(encoding="utf-8")
+            st.markdown(_paliers_md)
+        except Exception:
+            st.caption("File `PALIERS.md` non trovato nel repo.")
 
     if st.sidebar.button("🔄 Ricarica dati (svuota cache)"):
         st.cache_data.clear()
