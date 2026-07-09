@@ -1,10 +1,7 @@
 """
-Nuclear Fleet Analyzer — Analisi della modulazione del parco nucleare francese
-Capacity factor, load-following e limiti di modulazione (reattore singolo e flotta).
-
-Sviluppato da Matteo De Piccoli — Ci Sarà un Bel Clima (https://unbelclima.it/)
-
+streamlit_app.py — Nuclear Fleet Analyzer
 Entry point per Streamlit (compatibile con Streamlit Community Cloud).
+
 Uso:
     streamlit run streamlit_app.py
 """
@@ -159,23 +156,6 @@ def _find_repo_data():
 
 def sidebar_controls():
     st.sidebar.title("⚛️ Fleet Analyzer")
-    st.sidebar.markdown(
-        "<div style='font-size:0.8em; color:#888; margin-top:-8px; margin-bottom:8px;'>"
-        "Sviluppato da <b>Matteo De Piccoli</b><br>"
-        "Autore di <a href='https://www.peoplepub.it/pagina-prodotto/avete-rotto-l-atomo' "
-        "target='_blank' style='color:#888;'><i>Avete rotto l'atomo</i></a><br>"
-        "<a href='https://unbelclima.it/' target='_blank' "
-        "style='color:#16A34A; text-decoration:none;'>🌍 Ci Sarà un Bel Clima</a>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    with st.sidebar.expander("🏭 Cosa sono i palier"):
-        try:
-            _paliers_md = (Path(__file__).resolve().parent / "PALIERS.md").read_text(encoding="utf-8")
-            st.markdown(_paliers_md)
-        except Exception:
-            st.caption("File `PALIERS.md` non trovato nel repo.")
 
     if st.sidebar.button("🔄 Ricarica dati (svuota cache)"):
         st.cache_data.clear()
@@ -374,8 +354,9 @@ def render_single(reactor, hourly, unavail_data, date_from, date_to):
     # KPI: limiti di modulazione (il confronto col gas)
     ml = lf.modulation_limits(h)
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Rampa max", f"{ml['max_ramp_rate_pct_h']:.0f}% Pnom/h",
-              help="Manovra più veloce osservata mentre online. Argonne/MIT: ~20%/h. Il gas arriva a 100%+/h.")
+    c1.metric("Rampa max", f"{ml['max_ramp_rate_pct_min']:.2f}% Pnom/min",
+              help="Manovra più veloce osservata mentre online (media sul minuto, dato orario). "
+                   "Letteratura EDF: fino a ~1–5%/min con le barre grigie.")
     c2.metric("Modulazione più profonda", f"−{ml['max_depth_pct']:.0f}%",
               help="Scesa massima sotto il nominale restando in marcia. EDF: fino a −80% (20% Pnom).")
     c3.metric("Max cicli in un giorno", f"{ml['max_cycles_day']}",
@@ -413,7 +394,7 @@ def render_single(reactor, hourly, unavail_data, date_from, date_to):
 
         st.info(
             f"**Limiti di modulazione di {reactor}** — rampa max "
-            f"{ml['max_ramp_rate_pct_h']:.0f}% Pnom/h · profondità fino a −{ml['max_depth_pct']:.0f}% · "
+            f"{ml['max_ramp_rate_pct_min']:.2f}% Pnom/min · profondità fino a −{ml['max_depth_pct']:.0f}% · "
             f"al più {ml['max_cycles_day']} cicli/giorno · "
             + (f"~{ml['median_gap_h']:.0f} h di stabilità tra manovre · "
                if pd.notna(ml['median_gap_h']) else "")
@@ -547,7 +528,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to):
             f"• Reattori manovrabili insieme: max **{max_simul}/{len(selected)}**, "
             f"in media {mean_simul:.0f}  \n"
             f"• Flessibilità simultanea di picco: ~**{gw_flex:.0f} GW** su {gw_inst:.0f} GW installati  \n"
-            f"• Rampa aggregata massima: **{ml['max_ramp_rate_pct_h']:.0f}%** dell'installato/h  \n"
+            f"• Rampa aggregata massima: **{ml['max_ramp_rate_pct_min']:.2f}%** dell'installato/min  \n"
             f"• Tempo a piena potenza (baseload): **{ml['pct_baseload']:.0f}%**  \n"
             f"• Metà parco modula insieme solo il **{pct_high_simul:.0f}%** delle ore"
         )
@@ -564,7 +545,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to):
                 continue
             prows.append({
                 "palier": m["palier"], "net_MW": m["net_MW"],
-                "cf": d["kpi"]["cf_nominal"], "ramp_max": d["ml"]["max_ramp_rate_pct_h"],
+                "cf": d["kpi"]["cf_nominal"], "ramp_max": d["ml"]["max_ramp_rate_pct_min"],
                 "depth": d["ml"]["max_depth_pct"], "cycles": d["ml"]["max_cycles_day"],
                 "baseload": d["ml"]["pct_baseload"],
             })
@@ -587,14 +568,14 @@ def render_fleet(selected, hourly, nominal, date_from, date_to):
                     st.plotly_chart(fig, use_container_width=True)
             with c2:
                 st.markdown("**Rampa massima media per palier**")
-                fig = charts.palier_block_comparison(pal, "mean_ramp_max", "Rampa max media (%/h)")
+                fig = charts.palier_block_comparison(pal, "mean_ramp_max", "Rampa max media (%/min)")
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("#### Tabella per palier")
             show = pal.copy()
             show.columns = ["Palier", "N reattori", "GW totali", "CF medio %",
-                            "Rampa max media %/h", "Profondità media %",
+                            "Rampa max media %/min", "Profondità media %",
                             "Max cicli/gg", "Baseload medio %"]
             for c in show.columns[2:]:
                 show[c] = show[c].round(1)
@@ -618,7 +599,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to):
                 "Palier": e.get("palier", "—") if e.get("matched") else "—",
                 "Anno": int(e["commissioning_year"]) if e.get("matched") and pd.notna(e.get("commissioning_year")) else None,
                 "CF %": round(d["kpi"]["cf_nominal"], 1),
-                "Rampa max %/h": round(d["ml"]["max_ramp_rate_pct_h"], 0),
+                "Rampa max %/min": round(d["ml"]["max_ramp_rate_pct_min"], 2),
                 "Profondità %": round(d["ml"]["max_depth_pct"], 0),
                 "Max cicli/gg": d["ml"]["max_cycles_day"],
                 "Baseload %": round(d["ml"]["pct_baseload"], 0),
