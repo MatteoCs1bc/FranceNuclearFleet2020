@@ -19,7 +19,7 @@ from src.loader import load_from_zip, load_from_folder
 from src.metrics import (
     build_all_hourly, slice_period, compute_kpis,
     aggregate_fleet, fleet_kpis, matched_events_in_period,
-    reactor_modulation_metrics,
+    reactor_modulation_metrics, palier_summary,
 )
 from src.metadata import load_metadata, match, build_lookup, enrich_reactor_list, PALIER_DESCR
 from src import charts
@@ -205,72 +205,80 @@ def sidebar_controls():
     else:
         st.sidebar.warning("Nessuno ZIP/CSV trovato nel repo.")
 
-    # Pannello diagnostico (sempre disponibile)
-    with st.sidebar.expander("🔎 Diagnostica dati", expanded=(n_react == 0)):
-        st.caption(f"Cartella app: `{diag['cartella_app']}`")
-        st.caption(f"`data/` esiste: {diag['data_esiste']}")
-        st.write("**File nella root del repo:**")
-        st.write(diag["contenuto_root"] or "—")
-        if diag["data_esiste"]:
-            st.write("**File in `data/`:**")
-            st.write(diag["contenuto_data"] or "—")
-        st.write("**ZIP trovati:**")
-        st.write(diag["zip_trovati"] or "nessuno")
+    # Diagnostica + upload manuale: mostrati SOLO se i dati non si caricano.
+    # Con lo ZIP nel repo l'app parte da sola, senza UI di caricamento.
+    if n_react == 0:
+        with st.sidebar.expander("🔎 Diagnostica dati", expanded=True):
+            st.caption(f"Cartella app: `{diag['cartella_app']}`")
+            st.write("**File nella root:**", diag["contenuto_root"] or "—")
+            if diag["data_esiste"]:
+                st.write("**File in `data/`:**", diag["contenuto_data"] or "—")
+            st.write("**ZIP trovati:**", diag["zip_trovati"] or "nessuno")
+            if kind == "zip" and diag["zip_trovati"]:
+                try:
+                    import zipfile
+                    from src.loader import get_file_type
+                    with zipfile.ZipFile(diag["zip_trovati"][0]) as zf:
+                        names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+                    types = {}
+                    for n in names:
+                        types[get_file_type(n)] = types.get(get_file_type(n), 0) + 1
+                    st.write("Tipi rilevati:", types)
+                    if types.get("unknown", 0) == len(names) and names:
+                        st.error("Tutti 'unknown' → `src/loader.py` sul server è vecchio.")
+                except Exception as exc:  # noqa: BLE001
+                    st.caption(f"Ispezione ZIP fallita: {exc}")
 
-        # Ispezione del contenuto dello ZIP col loader ATTUALE
-        if kind == "zip" and n_react == 0 and diag["zip_trovati"]:
-            st.divider()
-            st.write("**Dentro lo ZIP (riconoscimento loader attuale):**")
-            try:
-                import zipfile
-                from src.loader import get_file_type, extract_reactor_name
-                with zipfile.ZipFile(diag["zip_trovati"][0]) as zf:
-                    names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
-                st.caption(f"CSV nello ZIP: {len(names)}")
-                types = {}
-                for n in names:
-                    t = get_file_type(n)
-                    types[t] = types.get(t, 0) + 1
-                st.write("Tipi rilevati:", types)
-                st.caption("Esempi (nome → tipo / reattore):")
-                for n in names[:4]:
-                    base = Path(n).name
-                    st.text(f"{base[:38]}…\n  → {get_file_type(n)} / {extract_reactor_name(n)}")
-                if types.get("unknown", 0) == len(names) and names:
-                    st.error(
-                        "Tutti 'unknown' → il `src/loader.py` sul server è la "
-                        "versione VECCHIA. Ricarica il loader aggiornato."
-                    )
-            except Exception as exc:  # noqa: BLE001
-                st.caption(f"Impossibile ispezionare lo ZIP: {exc}")
-
-    # 2) Override: caricare uno ZIP al volo
-    with st.sidebar.expander("📂 Carica uno ZIP manualmente", expanded=(n_react == 0)):
-        zf = st.file_uploader("ZIP con i CSV", type=["zip"], key="override_zip")
-        if zf is not None:
-            with st.spinner("Parsing dello ZIP caricato…"):
-                prod, unavail, hourly, nominal, errors = _load_zip_cached(zf.read())
-            if hourly:
-                st.success(f"Caricati {len(hourly)} reattori dal file.")
-            else:
-                st.error("0 reattori: nomi file non riconosciuti nello ZIP.")
+        with st.sidebar.expander("📂 Carica uno ZIP manualmente", expanded=True):
+            zf = st.file_uploader("ZIP con i CSV", type=["zip"], key="override_zip")
+            if zf is not None:
+                with st.spinner("Parsing…"):
+                    prod, unavail, hourly, nominal, errors = _load_zip_cached(zf.read())
 
     return prod, unavail, hourly, nominal, errors
 
 
 def period_and_reactor_controls(hourly: dict, nominal: dict):
-    reactors = sorted(hourly.keys())
+    reactors = list(hourly.keys())
     st.sidebar.divider()
     st.sidebar.subheader("🎛️ Selezione")
+
+    # Etichette con palier + anno, ordinate per età (vecchi → nuovi)
+    enr = enrich_reactor_list(reactors, _metadata_cached())
+    info = {row["reactor"]: row for _, row in enr.iterrows()}
+
+    def sort_key(r):
+        m = info.get(r, {})
+        yr = m.get("commissioning_year")
+        return (yr if pd.notna(yr) else 9999, r)
+
+    reactors_sorted = sorted(reactors, key=sort_key)
+
+    def label(r):
+        m = info.get(r, {})
+        if m.get("matched"):
+            yr = int(m["commissioning_year"]) if pd.notna(m.get("commissioning_year")) else "?"
+            return f"{r} · {m['palier']} · {yr}"
+        return f"{r} · (n/d)"
 
     mode = st.sidebar.radio("Modalità analisi",
                             ["Reattore singolo", "Aggregata (flotta)"])
 
     if mode == "Reattore singolo":
-        selected = [st.sidebar.selectbox("Reattore", reactors)]
+        chosen = st.sidebar.selectbox("Reattore", reactors_sorted, format_func=label)
+        selected = [chosen]
+        st.sidebar.caption("Ordinati per anno di accensione (vecchi → nuovi)")
     else:
-        default = reactors[: min(10, len(reactors))]
-        selected = st.sidebar.multiselect("Reattori", reactors, default=default)
+        # Flotta INTERA di default; filtro rapido per palier
+        paliers = sorted({info[r]["palier"] for r in reactors
+                          if info.get(r, {}).get("matched")})
+        pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)",
+                                          paliers, default=[])
+        pool = [r for r in reactors_sorted
+                if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
+        selected = st.sidebar.multiselect("Reattori", reactors_sorted,
+                                          default=pool, format_func=label)
+        st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
 
     # Range temporale globale
     all_idx = pd.DatetimeIndex([])
@@ -343,198 +351,149 @@ def render_single(reactor, hourly, unavail_data, date_from, date_to):
         f"{kpi['hours']:,} ore · {date_from} → {date_to}"
     )
 
+    # KPI: limiti di modulazione (il confronto col gas)
+    ml = lf.modulation_limits(h)
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("CF su nominale", f"{kpi['cf_nominal']:.1f}%")
-    c2.metric("CF su disponibile", f"{kpi['cf_available']:.1f}%",
-              help="Quanto produce quando è dichiarato disponibile (load factor)")
-    c3.metric("Fattore disponibilità", f"{kpi['availability_factor']:.1f}%",
-              help="Capacità disponibile / capacità nominale nel periodo")
-    c4.metric("Max Ramp Up", f"+{kpi['max_ramp_up']:.0f} MW/h")
-    c5.metric("Max Ramp Down", f"{kpi['max_ramp_down']:.0f} MW/h")
+    c1.metric("Rampa max", f"{ml['max_ramp_rate_pct_min']:.2f}% Pnom/min",
+              help="Manovra più veloce osservata mentre online (media sul minuto, dato orario). "
+                   "Letteratura EDF: fino a ~1–5%/min con le barre grigie.")
+    c2.metric("Modulazione più profonda", f"−{ml['max_depth_pct']:.0f}%",
+              help="Scesa massima sotto il nominale restando in marcia. EDF: fino a −80% (20% Pnom).")
+    c3.metric("Max cicli in un giorno", f"{ml['max_cycles_day']}",
+              help="Su/giù nello stesso giorno. EDF: fino a 2/giorno.")
+    c4.metric("Tempo tra manovre", f"{ml['median_gap_h']:.0f} h" if pd.notna(ml['median_gap_h']) else "—",
+              help="Ore mediane di stabilità tra due manovre (vincolo xeno-135). Il gas può ri-rampare subito.")
+    c5.metric("Tempo a piena potenza", f"{ml['pct_baseload']:.0f}%",
+              help="Quota di ore in baseload (non modula).")
 
     st.divider()
+    tabs = st.tabs(["🔁 Modulazione", "⚛️ Vincoli fisici", "📉 Produzione & CF",
+                    "🔧 Indisponibilità"])
 
-    tabs = st.tabs(["⏱️ Orario", "🔁 Load Following", "⚡ Capacity Factor",
-                    "🔀 Ramp", "🔧 Indisponibilità"])
-
-    # --- ORARIO (centrale) ---
+    # --- MODULAZIONE (focus) ---
     with tabs[0]:
-        st.markdown("#### Produzione vs Capacità Disponibile (orario)")
+        st.markdown("#### Firma giornaliera: quando e quanto modula")
         st.caption(
-            "Area blu = produzione · linea verde = capacità disponibile "
-            "ricostruita dagli eventi · bande arancio/rosso = manutenzione/guasto"
+            "Produzione media e rampe per ora del giorno. L'avvallamento di "
+            "mezzogiorno, se presente, è indotto dal fotovoltaico che spinge giù "
+            "il nucleare nelle ore centrali."
         )
+        st.plotly_chart(charts.lf_diurnal_profile(h), use_container_width=True)
+
+        # Giorno di massima modulazione (punto 8)
+        pk = lf.peak_modulation_day(h)
+        if pk:
+            st.markdown(f"#### Giorno di massima modulazione: **{pk['date'].date()}**")
+            st.caption(
+                f"Escursione del {pk['swing_pct']:.0f}% Pnom in giornata, "
+                f"{pk['n_cycles']} ciclo/i. È il massimo che questo reattore ha modulato "
+                "restando in marcia nel periodo — il suo limite pratico osservato."
+            )
+            fig = charts.peak_day_profile(pk, reactor)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+        st.info(
+            f"**Limiti di modulazione di {reactor}** — rampa max "
+            f"{ml['max_ramp_rate_pct_min']:.2f}% Pnom/min · profondità fino a −{ml['max_depth_pct']:.0f}% · "
+            f"al più {ml['max_cycles_day']} cicli/giorno · "
+            + (f"~{ml['median_gap_h']:.0f} h di stabilità tra manovre · "
+               if pd.notna(ml['median_gap_h']) else "")
+            + f"a piena potenza il {ml['pct_baseload']:.0f}% del tempo."
+        )
+
+    # --- VINCOLI FISICI (xeno) ---
+    with tabs[1]:
+        st.caption(
+            "Perché un reattore non modula come una turbina a gas: dopo una discesa "
+            "profonda, l'**xeno-135** (prodotto di fissione che assorbe neutroni) si "
+            "accumula e ritarda la risalita di potenza. Qui il vincolo si vede nei dati."
+        )
+        rec = lf.xenon_recovery(h, threshold_pct=40)
+        deep = lf.deep_modulations(h, threshold_pct=40)
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Recupero mediano", f"{rec.median():.0f} h" if len(rec) else "—",
+                  help="Tempo tipico tra un ramp-down >40% e la successiva risalita")
+        c2.metric("Max discese profonde/giorno",
+                  f"{int(deep['n_deep_down'].max())}" if not deep.empty else "0",
+                  help="Massimo di ramp-down >40% Pnom osservati nello stesso giorno")
+        c3.metric("Risalite nella finestra xeno",
+                  f"{((rec >= 6) & (rec <= 16)).mean()*100:.0f}%" if len(rec) else "—",
+                  help="Quota di risalite tra 6 e 16 h dopo la discesa: la firma del transitorio")
+
+        st.markdown("#### Tempo di recupero dopo un ramp-down profondo")
+        st.caption("Se la modulazione fosse libera, le risalite sarebbero immediate. "
+                   "L'accumulo in 6–16 h è la firma dello xeno.")
+        fig = charts.xenon_recovery_hist(rec)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Nel periodo non ci sono abbastanza ramp-down profondi (>40%) "
+                    "per stimare il recupero. Prova un reattore che modula molto "
+                    "(es. Cattenom 2/3, Belleville 1) o un periodo più ampio.")
+
+        st.markdown("#### Quante discese profonde nello stesso giorno")
+        st.caption("Il tetto pratico è basso: raramente più di 1–2 discese >40% al "
+                   "giorno. Lo xeno impedisce i cicli profondi rapidi e ripetuti.")
+        fig = charts.deep_modulations_hist(deep)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+
+        if len(rec):
+            st.info(
+                f"**In sintesi** — dopo una discesa >40%, {reactor} risale in media dopo "
+                f"**{rec.mean():.1f} h** (mediana {rec.median():.0f} h); il "
+                f"{((rec>=6)&(rec<=16)).mean()*100:.0f}% delle risalite cade nella finestra "
+                f"xeno (6–16 h). Massimo **{int(deep['n_deep_down'].max()) if not deep.empty else 0} "
+                f"discese profonde** in un solo giorno: è il tetto fisico, incompatibile "
+                f"con la flessibilità libera di una CCGT a gas."
+            )
+
+    # --- PRODUZIONE & CF ---
+    with tabs[2]:
+        st.markdown("#### Produzione vs capacità disponibile (orario)")
+        st.caption("Area blu = produzione · verde = disponibile · bande = manutenzione/guasto")
         st.plotly_chart(
             charts.hourly_prod_vs_avail(h, events, show_nominal=True),
             use_container_width=True,
         )
-        st.markdown("#### Ramp orario")
-        st.plotly_chart(charts.hourly_ramp(h), use_container_width=True)
+        cc = st.columns(3)
+        cc[0].metric("CF su nominale", f"{kpi['cf_nominal']:.1f}%")
+        cc[1].metric("CF su disponibile", f"{kpi['cf_available']:.1f}%",
+                     help="Quanto produce quando è dichiarato disponibile")
+        cc[2].metric("Fattore disponibilità", f"{kpi['availability_factor']:.1f}%")
 
-        # Margine non utilizzato
-        unused = h["unused_MW"].clip(lower=0)
-        e1, e2, e3 = st.columns(3)
-        e1.metric("Energia prodotta", f"{kpi['energy_produced_GWh']:.0f} GWh")
-        e2.metric("Energia disponibile", f"{kpi['energy_available_GWh']:.0f} GWh")
-        e3.metric("Margine medio non usato", f"{unused.mean():.0f} MW",
-                  help="Capacità disponibile ma non prodotta (load-following)")
-
-    # --- LOAD FOLLOWING ---
-    with tabs[1]:
-        s = lf.lf_summary(h)
-        st.caption(
-            "Quanto e quanto **spesso** il reattore modula *mentre è in marcia* "
-            "(escludendo avvii/arresti per ricarica). Confronto coi benchmark di "
-            "letteratura: EDF 2019 (20–100% Pnom, 2 cicli/giorno), "
-            "Argonne/MIT 2018 (~20% Pnom/h), OECD/NEA 2011."
-        )
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Giorni di load-following", f"{s['pct_lf_days']:.0f}%",
-                  help="% di giorni in cui il reattore, restando online, ha modulato ≥8% Pnom")
-        c2.metric("Rampe online / mese", f"{s['online_ramps_per_month']:.0f}")
-        c3.metric("Cicli per giorno di LF", f"{s['cycles_per_lf_day']:.1f}",
-                  help="Letteratura EDF: fino a 2/giorno")
-        c4.metric("Range operativo osservato",
-                  f"{s['obs_range_low_pct']:.0f}–{s['obs_range_high_pct']:.0f}%",
-                  help="EDF: modulazione tra 20% e 100% Pnom")
-
-        # Ripartizione del tempo negli stati operativi
-        st.markdown("#### Ripartizione del tempo per stato operativo")
-        cc = st.columns(4)
-        cc[0].metric("Piena potenza", f"{s['pct_full']:.0f}%")
-        cc[1].metric("Load-following", f"{s['pct_load_follow']:.0f}%")
-        cc[2].metric("Bassa/transitorio", f"{s['pct_low']:.1f}%")
-        cc[3].metric("Fermo", f"{s['pct_off']:.1f}%")
-        st.plotly_chart(charts.lf_state_stack(h), use_container_width=True)
-
-        st.markdown("#### Firma giornaliera del load-following")
-        st.caption(
-            "Se il reattore segue la domanda, la produzione media cala in certe "
-            "ore e le rampe hanno un pattern orario. In Francia oggi si vede spesso "
-            "l'avvallamento di mezzogiorno indotto dal fotovoltaico."
-        )
-        st.plotly_chart(charts.lf_diurnal_profile(h), use_container_width=True)
-
-        st.markdown("#### Quando modula: ora del giorno × mese")
-        st.plotly_chart(charts.lf_diurnal_heatmap(h), use_container_width=True)
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### Frequenza delle rampe (eventi online)")
-            st.plotly_chart(charts.lf_ramp_frequency(h), use_container_width=True)
-        with c2:
-            st.markdown("#### Cicli di LF per mese")
-            st.plotly_chart(charts.lf_cycles_per_month(h), use_container_width=True)
-
-        st.markdown("#### Velocità delle rampe vs limite di letteratura")
-        st.plotly_chart(charts.lf_ramp_rate_hist(h), use_container_width=True)
-
-    # --- CAPACITY FACTOR ---
-    with tabs[2]:
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### CF annuale")
-            st.plotly_chart(charts.cf_annual(h), use_container_width=True)
-        with c2:
-            st.markdown("#### CF per mese (stagionalità)")
-            st.plotly_chart(charts.cf_monthly_box(h), use_container_width=True)
-
-        st.markdown("#### Heatmap CF (Anno × Mese)")
-        st.plotly_chart(charts.cf_heatmap(h), use_container_width=True)
-
-        st.markdown("#### Tabella CF mensile")
-        monthly = h.resample("ME").agg(
-            prod=("production_MW_pos", "mean"),
-            avail=("availability_MW", "mean"),
-        )
-        monthly["CF nom %"] = (monthly["prod"] / kpi["nominal_MW"] * 100).round(1)
-        monthly["CF disp %"] = (monthly["prod"] / monthly["avail"] * 100).round(1)
-        monthly.index = monthly.index.strftime("%Y-%m")
-        st.dataframe(
-            _style_gradient(monthly[["CF nom %", "CF disp %"]], vmin=0, vmax=100),
-            use_container_width=True, height=320,
-        )
-
-    # --- RAMP ---
-    with tabs[3]:
-        st.markdown("#### Distribuzione ramp rates")
-        st.plotly_chart(charts.ramp_distribution(h), use_container_width=True)
-
-        ramp = h["ramp_MW_h"].dropna()
-        ramp = ramp[ramp.abs() > 1]
-        ups, downs = ramp[ramp > 0], ramp[ramp < 0]
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Ramp Up (MW/h)**")
-            st.dataframe(pd.DataFrame({
-                "Metrica": ["Max", "95°p", "75°p", "Mediana", "N ore"],
-                "Valore": [f"+{ups.max():.0f}" if len(ups) else "—",
-                           f"+{ups.quantile(.95):.0f}" if len(ups) else "—",
-                           f"+{ups.quantile(.75):.0f}" if len(ups) else "—",
-                           f"+{ups.median():.0f}" if len(ups) else "—",
-                           f"{len(ups):,}"],
-            }), hide_index=True, use_container_width=True)
-        with c2:
-            st.markdown("**Ramp Down (MW/h)**")
-            st.dataframe(pd.DataFrame({
-                "Metrica": ["Min", "5°p", "25°p", "Mediana", "N ore"],
-                "Valore": [f"{downs.min():.0f}" if len(downs) else "—",
-                           f"{downs.quantile(.05):.0f}" if len(downs) else "—",
-                           f"{downs.quantile(.25):.0f}" if len(downs) else "—",
-                           f"{downs.median():.0f}" if len(downs) else "—",
-                           f"{len(downs):,}"],
-            }), hide_index=True, use_container_width=True)
-
-        st.markdown("#### Ramp medio per ora del giorno")
-        st.plotly_chart(charts.ramp_by_hour(h), use_container_width=True)
+        st.markdown("#### Capacity factor annuale")
+        st.plotly_chart(charts.cf_annual(h), use_container_width=True)
 
     # --- INDISPONIBILITÀ ---
-    with tabs[4]:
+    with tabs[3]:
         if events.empty:
             st.info("Nessun evento di indisponibilità nel periodo.")
         else:
             planned = events[events["type"] == "planned_maintenance"]
             forced = events[events["type"] == "forced_unavailability"]
-            full = events[events["value"] == 0]
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3 = st.columns(3)
             c1.metric("Manutenzioni pianificate", len(planned))
             c2.metric("Guasti", len(forced))
-            c3.metric("Outage completi (0 MW)", len(full))
-            c4.metric("Durata media", f"{events['duration_h'].mean():.0f} h")
+            c3.metric("Durata media", f"{events['duration_h'].mean():.0f} h")
 
-            st.markdown("#### Timeline eventi")
-            fig = charts.outage_timeline(events)
+            st.markdown("#### Capacità disponibile nel tempo")
+            st.caption("Gli outage si vedono come crolli dell'area verde. "
+                       "La linea blu è la produzione effettiva.")
+            st.plotly_chart(charts.availability_band(h, events), use_container_width=True)
+
+            st.markdown("#### Indisponibilità per mese (pianificata vs guasti)")
+            fig = charts.outage_monthly_bars(events, h)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("#### Stagionalità")
-                fig = charts.outage_seasonality(events)
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
-            with c2:
-                st.markdown("#### Durata per tipo")
-                import plotly.express as px
-                fig = px.histogram(
-                    events, x="duration_h", color="type", nbins=40,
-                    color_discrete_map={
-                        "planned_maintenance": charts.COLORS["planned"],
-                        "forced_unavailability": charts.COLORS["forced"],
-                    },
-                    labels={"duration_h": "Durata (h)", "type": "Tipo"},
-                )
-                fig.update_layout(height=300, margin=dict(t=10, b=30))
-                st.plotly_chart(fig, use_container_width=True)
-
-            st.markdown("#### Dettaglio eventi")
-            cols = ["start", "end", "duration_h", "type", "value", "reason"]
-            cols = [c for c in cols if c in events.columns]
-            st.dataframe(
-                events[cols].sort_values("start", ascending=False),
-                use_container_width=True, height=320,
-            )
+            with st.expander("Dettaglio eventi"):
+                cols = [c for c in ["start", "end", "duration_h", "type", "value", "reason"]
+                        if c in events.columns]
+                st.dataframe(events[cols].sort_values("start", ascending=False),
+                             use_container_width=True, height=300)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -558,194 +517,157 @@ def render_fleet(selected, hourly, nominal, date_from, date_to):
         f"{kpi['hours']:,} ore · {date_from} → {date_to}"
     )
 
+    # KPI flotta: modulazione simultanea (helper memory-light → niente crash)
+    ml = lf.modulation_limits(fleet)
+    simul = lf.simultaneous_modulating(hourly, selected, date_from, date_to)
+    max_simul = int(simul.max()) if len(simul) else 0
+    mean_simul = float(simul.mean()) if len(simul) else 0
+    # quota di tempo in cui almeno metà dei reattori modula insieme
+    half = len(selected) / 2
+    pct_high_simul = float((simul >= half).mean() * 100) if len(simul) else 0
+
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("CF su nominale", f"{kpi['cf_nominal']:.1f}%")
-    c2.metric("CF su disponibile", f"{kpi['cf_available']:.1f}%")
-    c3.metric("Fattore disponibilità", f"{kpi['availability_factor']:.1f}%")
-    c4.metric("Energia prodotta", f"{kpi['energy_produced_TWh']:.1f} TWh")
-    c5.metric("Picco flotta", f"{kpi['peak_prod_MW']/1000:.1f} GW")
+    c1.metric("Capacità installata", f"{kpi['installed_MW']/1000:.1f} GW")
+    c2.metric("Max modulanti insieme", f"{max_simul}/{len(selected)}",
+              help="Picco di reattori simultaneamente in load-following")
+    c3.metric("In media modulano", f"{mean_simul:.0f}")
+    c4.metric("CF flotta", f"{kpi['cf_nominal']:.1f}%")
+    c5.metric("Energia", f"{kpi['energy_produced_TWh']:.1f} TWh")
 
     st.divider()
+    tabs = st.tabs(["🔁 Modulazione flotta", "🏭 Confronto per palier",
+                    "📊 Reattori & anagrafica"])
 
-    tabs = st.tabs(["⏱️ Orario aggregato", "🔁 Load Following flotta",
-                    "📊 Confronto reattori", "🔀 Ramp flotta",
-                    "🏭 Modulazione & Anagrafica"])
+    # Calcolo per-reattore UNA volta sola (condiviso da palier e tabella)
+    as_of = pd.Timestamp(date_to).year
+    enriched = enrich_reactor_list(selected, _metadata_cached(), as_of=as_of)
+    einfo = {r["reactor"]: r for _, r in enriched.iterrows()}
+    per_reactor = {}
+    for r in selected:
+        h = slice_period(hourly[r], date_from, date_to)
+        if h.empty:
+            continue
+        per_reactor[r] = {"kpi": compute_kpis(h), "ml": lf.modulation_limits(h),
+                          "meta": einfo.get(r, {})}
 
-    # --- ORARIO AGGREGATO ---
+    # --- MODULAZIONE FLOTTA (focus) ---
     with tabs[0]:
-        st.markdown("#### Produzione vs Disponibilità aggregata (orario)")
-        st.caption("Somma oraria di tutti i reattori selezionati")
-        st.plotly_chart(
-            charts.hourly_prod_vs_avail(fleet, None, show_nominal=True),
-            use_container_width=True,
-        )
-        c1, c2, c3 = st.columns(3)
-        gap = (fleet["availability_MW"] - fleet["production_MW_pos"]).clip(lower=0)
-        c1.metric("Margine medio non usato", f"{gap.mean()/1000:.1f} GW",
-                  help="Capacità disponibile ma non prodotta a livello flotta")
-        c2.metric("Produzione minima", f"{kpi['min_prod_MW']/1000:.1f} GW")
-        c3.metric("Range ramp", f"{kpi['max_ramp_down']:.0f} / +{kpi['max_ramp_up']:.0f} MW/h")
-
-    # --- LOAD FOLLOWING FLOTTA ---
-    with tabs[1]:
-        st.caption(
-            "Load-following a livello di **flotta**: quanti reattori modulano "
-            "insieme e con che struttura oraria. Benchmark: EDF 2019, "
-            "Argonne/MIT 2018, OECD/NEA 2011."
-        )
-        s = lf.lf_summary(fleet)
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Ore flotta in modulazione", f"{s['pct_load_follow']:.0f}%",
-                  help="Quota di ore in cui la produzione aggregata è tra 20% e 92% dell'installato")
-        c2.metric("Rampe online / mese", f"{s['online_ramps_per_month']:.0f}")
-        c3.metric("Giorni di LF", f"{s['pct_lf_days']:.0f}%")
-        c4.metric("Range aggregato osservato",
-                  f"{s['obs_range_low_pct']:.0f}–{s['obs_range_high_pct']:.0f}%")
-
         st.markdown("#### Quanti reattori modulano contemporaneamente")
+        st.caption(
+            f"Su {len(selected)} reattori, al più **{max_simul}** hanno modulato "
+            f"nella stessa ora; in media **{mean_simul:.0f}**. "
+            f"Almeno metà del parco modula insieme solo il **{pct_high_simul:.0f}%** del tempo."
+        )
         fig = charts.fleet_reactors_modulating(hourly, selected, date_from, date_to, "D")
         if fig:
             st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("#### Firma giornaliera aggregata")
-        st.caption("La modulazione della flotta segue la curva di domanda netta "
-                   "(domanda − solare/eolico): avvallamento di mezzogiorno da FV.")
-        st.plotly_chart(charts.lf_diurnal_profile(fleet), use_container_width=True)
-
-        st.markdown("#### Quando modula la flotta: ora × mese")
-        st.plotly_chart(charts.lf_diurnal_heatmap(fleet), use_container_width=True)
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### Ripartizione tempo per stato")
-            st.plotly_chart(charts.lf_state_stack(fleet), use_container_width=True)
-        with c2:
-            st.markdown("#### Frequenza rampe aggregate")
-            st.plotly_chart(charts.lf_ramp_frequency(fleet), use_container_width=True)
-
-    # --- CONFRONTO REATTORI ---
-    with tabs[2]:
-        st.markdown("#### Ranking CF medio nel periodo")
-        fig = charts.fleet_cf_ranking(hourly, selected, date_from, date_to)
+        st.markdown("#### Distribuzione: per quante ore N reattori modulano insieme")
+        st.caption("Il picco a sinistra mostra che nella maggior parte delle ore modulano "
+                   "pochi reattori: la flessibilità simultanea del parco ha un tetto.")
+        fig = charts.fleet_simultaneous_hist(hourly, selected, date_from, date_to)
         if fig:
             st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("#### Heatmap CF (Reattore × Mese)")
-        fig = charts.fleet_cf_heatmap(hourly, selected, date_from, date_to, "ME")
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Tabella riepilogo
-        st.markdown("#### Riepilogo per reattore")
-        rows = []
-        for r in selected:
-            h = slice_period(hourly[r], date_from, date_to)
-            if h.empty:
-                continue
-            k = compute_kpis(h)
-            rows.append({
-                "Reattore": r,
-                "Nominale MW": round(k["nominal_MW"]),
-                "CF nom %": round(k["cf_nominal"], 1),
-                "CF disp %": round(k["cf_available"], 1),
-                "Disp. %": round(k["availability_factor"], 1),
-                "Outage h": k["outage_hours"],
-                "Energia GWh": round(k["energy_produced_GWh"]),
-            })
-        if rows:
-            summary = pd.DataFrame(rows).sort_values("CF nom %", ascending=False)
-            st.dataframe(
-                _style_gradient(summary,
-                                subset=["CF nom %", "CF disp %", "Disp. %"],
-                                vmin=0, vmax=100),
-                use_container_width=True, height=400, hide_index=True,
-            )
-            st.download_button(
-                "⬇️ Scarica riepilogo CSV",
-                summary.to_csv(index=False).encode(),
-                file_name="fleet_summary.csv", mime="text/csv",
-            )
-
-    # --- RAMP FLOTTA ---
-    with tabs[3]:
-        st.markdown("#### Distribuzione ramp aggregati")
-        st.plotly_chart(charts.ramp_distribution(fleet), use_container_width=True)
-        st.markdown("#### Ramp medio per ora del giorno (flotta)")
-        st.plotly_chart(charts.ramp_by_hour(fleet), use_container_width=True)
-
-    # --- MODULAZIONE & ANAGRAFICA ---
-    with tabs[4]:
-        meta_df = _metadata_cached()
-        as_of = pd.Timestamp(date_to).year
-        enriched = enrich_reactor_list(selected, meta_df, as_of=as_of)
-        mod = reactor_modulation_metrics(hourly, selected, date_from, date_to)
-
-        n_matched = int(enriched["matched"].sum())
-        if n_matched < len(selected):
-            missing = enriched[~enriched["matched"]]["reactor"].tolist()
-            st.info(f"Anagrafica non trovata per {len(missing)} reattori: "
-                    f"{', '.join(missing[:8])}{'…' if len(missing) > 8 else ''}. "
-                    "Puoi correggere `data/reactors_metadata.csv`.")
-
-        st.markdown("#### Potenziale di modulazione per palier")
-        st.caption(
-            "Velocità di modulazione = 95° percentile di |ramp| in % del nominale/ora. "
-            "I palier più recenti (N4, EPR) e i 900 MW sono progettati per load-following più spinto."
+        # Riquadro data-driven: i limiti di flotta, senza editorializzare
+        gw_inst = kpi["installed_MW"] / 1000
+        gw_flex = max_simul / len(selected) * gw_inst if len(selected) else 0
+        st.info(
+            f"**Limiti di modulazione della flotta (osservati nel periodo)**  \n"
+            f"• Reattori manovrabili insieme: max **{max_simul}/{len(selected)}**, "
+            f"in media {mean_simul:.0f}  \n"
+            f"• Flessibilità simultanea di picco: ~**{gw_flex:.0f} GW** su {gw_inst:.0f} GW installati  \n"
+            f"• Rampa aggregata massima: **{ml['max_ramp_rate_pct_min']:.2f}%** dell'installato/min  \n"
+            f"• Tempo a piena potenza (baseload): **{ml['pct_baseload']:.0f}%**  \n"
+            f"• Metà parco modula insieme solo il **{pct_high_simul:.0f}%** delle ore"
         )
-        merged = mod.merge(enriched[enriched["matched"]], on="reactor", how="inner")
-        if not merged.empty:
-            fig = charts.fleet_age_scatter(
-                enriched, metric_df=mod,
-                y_col="ramp_rate_pct",
-                y_label="Velocità modulazione (% Pnom/h)",
-            )
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            "💡 Perché servono *tanti* reattori e non pochi: la modulazione fine "
+            "emerge dalla somma di molte piccole manovre sfalsate. Con pochi reattori "
+            "la curva sarebbe 'a gradoni', e ognuno avrebbe bisogno di tempi di recupero "
+            "(xeno) tra le manovre — vedi il tab Vincoli fisici del singolo reattore. "
+            "Seleziona 4 reattori nella sidebar per vedere quanto si riduce la flessibilità."
+        )
+
+    # --- CONFRONTO PER PALIER (blocco) ---
+    with tabs[1]:
+        st.caption("Ragionamento per **blocco di palier**: ogni generazione di progetto "
+                   "confrontata come gruppo. I numeri sopra ogni barra sono le medie di gruppo.")
+        # aggrega per palier dai calcoli già fatti
+        prows = []
+        for r, d in per_reactor.items():
+            m = d["meta"]
+            if not m.get("matched"):
+                continue
+            prows.append({
+                "palier": m["palier"], "net_MW": m["net_MW"],
+                "cf": d["kpi"]["cf_nominal"], "ramp_max": d["ml"]["max_ramp_rate_pct_min"],
+                "depth": d["ml"]["max_depth_pct"], "cycles": d["ml"]["max_cycles_day"],
+                "baseload": d["ml"]["pct_baseload"],
+            })
+        if not prows:
+            st.info("Anagrafica non disponibile per i reattori selezionati.")
+        else:
+            pdf = pd.DataFrame(prows)
+            pal = pdf.groupby("palier").agg(
+                n_reactors=("cf", "size"), total_GW=("net_MW", lambda x: x.sum() / 1000),
+                mean_cf=("cf", "mean"), mean_ramp_max=("ramp_max", "mean"),
+                mean_depth=("depth", "mean"), max_cycles=("cycles", "max"),
+                mean_baseload=("baseload", "mean"),
+            ).reset_index()
 
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("**Velocità modulazione per palier**")
-                fig = charts.palier_modulation_box(
-                    mod, enriched, "ramp_rate_pct", "% Pnom/h")
+                st.markdown("**Capacity factor medio per palier**")
+                fig = charts.palier_block_comparison(pal, "mean_cf", "CF medio (%)")
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
             with c2:
-                st.markdown("**Escursione produzione per palier**")
-                fig = charts.palier_modulation_box(
-                    mod, enriched, "daily_swing_pct", "Escursione giornaliera (% Pnom)")
+                st.markdown("**Rampa massima media per palier**")
+                fig = charts.palier_block_comparison(pal, "mean_ramp_max", "Rampa max media (%/min)")
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("#### Anagrafica flotta — vita operativa")
-        st.caption("Barra = anni di esercizio, colore = palier. Fessenheim risulta dismesso nel 2020.")
+            st.markdown("#### Tabella per palier")
+            show = pal.copy()
+            show.columns = ["Palier", "N reattori", "GW totali", "CF medio %",
+                            "Rampa max media %/min", "Profondità media %",
+                            "Max cicli/gg", "Baseload medio %"]
+            for c in show.columns[2:]:
+                show[c] = show[c].round(1)
+            st.dataframe(show, use_container_width=True, hide_index=True)
+            st.caption("Palier ordinati per generazione: CP0→CP1→CP2 (900 MW), "
+                       "P4→P'4 (1300 MW), N4 (1450 MW), EPR (1600 MW).")
+
+    # --- REATTORI & ANAGRAFICA ---
+    with tabs[2]:
+        st.markdown("#### Anagrafica: età e vita operativa (colore = palier)")
         fig = charts.fleet_timeline(enriched, as_of=as_of)
         if fig:
             st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("#### Età vs Capacity Factor")
-        st.caption("Un reattore più vecchio modula/produce diversamente? Dimensione = potenza netta.")
-        fig = charts.fleet_age_scatter(
-            enriched, metric_df=mod, y_col="cf_nominal", y_label="CF su nominale (%)")
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Tabella anagrafica + modulazione
-        if not merged.empty:
-            st.markdown("#### Tabella anagrafica + modulazione")
-            show = merged[[
-                "reactor", "palier", "net_MW", "commissioning_year",
-                "years_operation", "cf_nominal", "ramp_rate_pct", "daily_swing_pct", "n_big_ramps",
-            ]].copy()
-            show.columns = ["Reattore", "Palier", "MW netti", "Accensione",
-                            "Anni", "CF %", "Modul. %Pnom/h", "Swing gg %", "N ramp>5%"]
-            for c in ["CF %", "Modul. %Pnom/h", "Swing gg %"]:
-                show[c] = show[c].round(1)
-            st.dataframe(show.sort_values("Palier"), use_container_width=True,
-                         height=380, hide_index=True)
-            st.download_button(
-                "⬇️ Scarica anagrafica+modulazione CSV",
-                show.to_csv(index=False).encode(),
-                file_name="fleet_modulation.csv", mime="text/csv")
+        st.markdown("#### Riepilogo per reattore")
+        rows = []
+        for r, d in per_reactor.items():
+            e = d["meta"]
+            rows.append({
+                "Reattore": r,
+                "Palier": e.get("palier", "—") if e.get("matched") else "—",
+                "Anno": int(e["commissioning_year"]) if e.get("matched") and pd.notna(e.get("commissioning_year")) else None,
+                "CF %": round(d["kpi"]["cf_nominal"], 1),
+                "Rampa max %/min": round(d["ml"]["max_ramp_rate_pct_min"], 2),
+                "Profondità %": round(d["ml"]["max_depth_pct"], 0),
+                "Max cicli/gg": d["ml"]["max_cycles_day"],
+                "Baseload %": round(d["ml"]["pct_baseload"], 0),
+            })
+        if rows:
+            summary = pd.DataFrame(rows).sort_values("Anno")
+            st.dataframe(
+                _style_gradient(summary, subset=["CF %"], vmin=0, vmax=100),
+                use_container_width=True, height=440, hide_index=True,
+            )
+            st.download_button("⬇️ Scarica CSV", summary.to_csv(index=False).encode(),
+                               file_name="fleet_modulation.csv", mime="text/csv")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -758,14 +680,12 @@ def main():
     if not hourly:
         st.title("⚛️ Nuclear Fleet Analyzer")
         st.markdown(
-            "Metti lo **ZIP** dei CSV nella cartella `data/` del repo e l'app lo "
-            "carica **da sola all'avvio** — nessun upload manuale. In alternativa "
-            "puoi caricarlo al volo dall'expander in sidebar.\n\n"
-            "L'app ricostruisce la **curva di capacità disponibile** dagli eventi di "
-            "indisponibilità e la confronta con la produzione oraria, calcolando "
-            "capacity factor, ramp up/down e analisi degli outage — sia per singolo "
-            "reattore che in forma aggregata sulla flotta, con anagrafica e "
-            "potenziale di modulazione per palier."
+            "Metti lo **ZIP** dei CSV nel repo (root o `data/`) e l'app lo carica "
+            "**da sola** — nessun upload manuale.\n\n"
+            "L'app misura **quanto e quanto spesso il nucleare modula**: limiti di "
+            "rampa, profondità, cicli/giorno e tempi di recupero per singolo "
+            "reattore, e quanti reattori possono modulare insieme a livello di flotta "
+            "— per confrontare la flessibilità del nucleare con quella del gas."
         )
         return
 
