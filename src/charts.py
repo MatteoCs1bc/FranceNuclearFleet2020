@@ -61,14 +61,16 @@ def hourly_prod_vs_avail(
                      else "rgba(245,158,11,0.10)")
             fig.add_vrect(x0=s, x1=e, fillcolor=color, line_width=0, layer="below")
 
-    # Nominale
-    if show_nominal and "nominal_MW" in hourly:
+    # Nominale (come shape, così NON finisce in legenda)
+    if show_nominal and "nominal_MW" in hourly and len(hourly):
         nominal = float(hourly["nominal_MW"].iloc[0])
-        fig.add_hline(
-            y=nominal, line=dict(color=COLORS["nominal"], width=1, dash="dash"),
-            annotation_text=f"Nominale {nominal:.0f} MW",
-            annotation_position="top left",
-        )
+        fig.add_shape(type="line", x0=hourly.index.min(), x1=hourly.index.max(),
+                      y0=nominal, y1=nominal,
+                      line=dict(color=COLORS["nominal"], width=1, dash="dash"))
+        fig.add_annotation(x=hourly.index.min(), y=nominal,
+                           text=f"Nominale {nominal:.0f} MW", showarrow=False,
+                           yshift=8, xanchor="left",
+                           font=dict(color=COLORS["nominal"], size=10))
 
     # Availability
     if "availability_MW" in hourly:
@@ -451,6 +453,204 @@ STATE_LABELS = {
 }
 
 
+def peak_day_profile(pk: dict, reactor: str = "") -> go.Figure | None:
+    """Profilo orario del giorno di massima modulazione."""
+    if not pk or "profile" not in pk:
+        return None
+    prof = pk["profile"]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=prof["hour"], y=prof["prod_pct"], mode="lines+markers",
+        line=dict(color=COLORS["production"], width=2.5),
+        fill="tozeroy", fillcolor="rgba(37,99,235,0.15)",
+        name="Produzione", hovertemplate="%{x}:00 → %{y:.0f}% Pnom<extra></extra>",
+    ))
+    fig.add_hline(y=100, line=dict(color=COLORS["nominal"], width=1, dash="dash"))
+    fig.update_layout(
+        xaxis_title="Ora del giorno", yaxis_title="Produzione (% Pnom)",
+        yaxis_range=[0, 105], height=340, margin=dict(t=10, b=30),
+        showlegend=False,
+    )
+    return fig
+
+
+def palier_block_comparison(palier_df: pd.DataFrame, metric: str,
+                            label: str, ascending: bool = False) -> go.Figure | None:
+    """Barre per palier di una metrica aggregata (confronto tra generazioni)."""
+    if palier_df.empty or metric not in palier_df:
+        return None
+    df = palier_df.sort_values(metric, ascending=ascending)
+    fig = go.Figure(go.Bar(
+        x=df["palier"], y=df[metric],
+        marker_color=[PALIER_COLORS.get(p, "#888") for p in df["palier"]],
+        text=df[metric].round(1), textposition="outside",
+        customdata=df[["n_reactors"]].values,
+        hovertemplate="%{x}: %{y:.1f}<br>%{customdata[0]} reattori<extra></extra>",
+    ))
+    fig.update_layout(xaxis_title="Palier", yaxis_title=label,
+                      height=340, margin=dict(t=10, b=30),
+                      xaxis=dict(categoryorder="array",
+                                 categoryarray=[p for p in PALIER_ORDER if p in df["palier"].values]))
+    return fig
+
+
+def outage_monthly_bars(unavail_df: pd.DataFrame, hourly: pd.DataFrame) -> go.Figure | None:
+    """
+    Alternativa chiara al Gantt: ore di indisponibilità per mese, per tipo,
+    ricostruite dalla curva di disponibilità (capacità persa vs nominale).
+    """
+    if hourly.empty:
+        return None
+    nominal = float(hourly["nominal_MW"].iloc[0])
+    df = hourly.copy()
+    # capacità persa = nominale − disponibile (in "unità reattore": frazione persa)
+    lost_frac = ((nominal - df["availability_MW"]).clip(lower=0) / nominal)
+    df["planned_h"] = 0.0
+    df["forced_h"] = 0.0
+    df.loc[df["event_type"] == "planned_maintenance", "planned_h"] = lost_frac
+    df.loc[df["event_type"] == "forced_unavailability", "forced_h"] = lost_frac
+    m = df.resample("ME")[["planned_h", "forced_h"]].sum()
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=m.index, y=m["planned_h"], name="Manutenzione pianificata",
+                         marker_color=COLORS["planned"]))
+    fig.add_trace(go.Bar(x=m.index, y=m["forced_h"], name="Guasto / Forza Maggiore",
+                         marker_color=COLORS["forced"]))
+    fig.update_layout(barmode="stack", yaxis_title="Ore-equivalenti di indisponibilità",
+                      height=340, margin=dict(t=10, b=30),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+    return fig
+
+
+def availability_band(hourly: pd.DataFrame, unavail_df: pd.DataFrame | None = None) -> go.Figure:
+    """
+    Disponibilità nel tempo come area (capacità disponibile in % del nominale),
+    con la produzione sovrapposta. Gli outage si vedono come crolli dell'area.
+    Più leggibile del Gantt.
+    """
+    nominal = float(hourly["nominal_MW"].iloc[0])
+    avail_pct = hourly["availability_MW"] / nominal * 100
+    prod_pct = hourly["production_MW_pos"] / nominal * 100
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=hourly.index, y=avail_pct, name="Capacità disponibile",
+        fill="tozeroy", line=dict(color=COLORS["availability"], width=0.8),
+        fillcolor="rgba(22,163,74,0.15)",
+        hovertemplate="Disponibile: %{y:.0f}%<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=hourly.index, y=prod_pct, name="Produzione",
+        line=dict(color=COLORS["production"], width=1),
+        hovertemplate="Produzione: %{y:.0f}%<extra></extra>",
+    ))
+    fig.update_layout(yaxis_title="% del nominale", yaxis_range=[0, 105],
+                      hovermode="x unified", height=340, margin=dict(t=10, b=30),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+    return fig
+
+
+def xenon_recovery_hist(recovery: pd.Series) -> go.Figure | None:
+    """Distribuzione dei tempi di recupero dopo un ramp-down profondo, con la
+    finestra del transitorio da xeno (6-16 h) evidenziata."""
+    if recovery is None or recovery.empty:
+        return None
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=recovery, nbinsx=48, marker_color=COLORS["production"],
+                               name="Risalite"))
+    # finestra xeno
+    fig.add_vrect(x0=6, x1=16, fillcolor="rgba(220,38,38,0.12)", line_width=0,
+                  annotation_text="finestra xeno-135 (6–16 h)",
+                  annotation_position="top")
+    med = float(recovery.median())
+    fig.add_vline(x=med, line=dict(color="#111", width=2, dash="dash"),
+                  annotation_text=f"mediana {med:.0f} h", annotation_position="top left")
+    fig.update_layout(xaxis_title="Ore prima della risalita di potenza",
+                      yaxis_title="N. manovre", height=340, margin=dict(t=30, b=30),
+                      showlegend=False)
+    return fig
+
+
+def deep_modulations_hist(deep_df: pd.DataFrame) -> go.Figure | None:
+    """Quante volte capita di avere 1, 2, 3... ramp-down profondi (>40%) in un
+    singolo giorno. Mostra il tetto fisico giornaliero."""
+    if deep_df is None or deep_df.empty:
+        return None
+    counts = deep_df["n_deep_down"].value_counts().sort_index()
+    fig = go.Figure(go.Bar(
+        x=counts.index.astype(int).astype(str), y=counts.values,
+        marker_color=COLORS["ramp_down"],
+        text=counts.values, textposition="outside",
+    ))
+    fig.update_layout(xaxis_title="Ramp-down profondi (>40% Pnom) nello stesso giorno",
+                      yaxis_title="N. giorni", height=320, margin=dict(t=10, b=30),
+                      showlegend=False)
+    return fig
+
+
+def lf_ramp_envelope(hourly: pd.DataFrame) -> go.Figure:
+    """
+    Inviluppo degli eventi-rampa online: ogni punto è una manovra
+    (x = durata in ore, y = ampiezza in % Pnom), colore = su/giù, dimensione =
+    velocità. Mostra i LIMITI: fino a dove e quanto in fretta il reattore modula.
+    """
+    ev = _lf.ramp_events(hourly)
+    if ev.empty:
+        return go.Figure()
+    ev = ev[ev["online"]].copy()
+    if ev.empty:
+        return go.Figure()
+    ev["abs_pct"] = ev["delta_pct"].abs()
+    fig = go.Figure()
+    for d, col, name in [("up", COLORS["ramp_up"], "Rampa su"),
+                         ("down", COLORS["ramp_down"], "Rampa giù")]:
+        sub = ev[ev["direction"] == d]
+        fig.add_trace(go.Scatter(
+            x=sub["duration_h"], y=sub["abs_pct"], mode="markers", name=name,
+            marker=dict(size=6, color=col, opacity=0.45,
+                        line=dict(width=0)),
+            hovertemplate="Durata: %{x} h<br>Ampiezza: %{y:.0f}% Pnom<extra></extra>",
+        ))
+    # evidenzia la manovra massima
+    mx = ev.loc[ev["abs_pct"].idxmax()]
+    fig.add_trace(go.Scatter(
+        x=[mx["duration_h"]], y=[mx["abs_pct"]], mode="markers+text",
+        marker=dict(size=14, color="#111", symbol="star"),
+        text=["max"], textposition="top center", showlegend=False,
+        hovertemplate=f"MAX: {mx['abs_pct']:.0f}% Pnom in {int(mx['duration_h'])}h<extra></extra>",
+    ))
+    fig.update_layout(xaxis_title="Durata manovra (ore)",
+                      yaxis_title="Ampiezza (% Pnom)",
+                      height=380, margin=dict(t=10, b=30),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+    return fig
+
+
+def fleet_simultaneous_hist(hourly_by_reactor: dict, reactors: list[str],
+                            date_from, date_to) -> go.Figure | None:
+    """Distribuzione: per quante ore N reattori modulano contemporaneamente."""
+    frames = []
+    for r in reactors:
+        if r not in hourly_by_reactor:
+            continue
+        h = hourly_by_reactor[r]
+        h = h.loc[(h.index >= pd.Timestamp(date_from)) &
+                  (h.index <= pd.Timestamp(date_to) + pd.Timedelta(days=1))]
+        if h.empty:
+            continue
+        frames.append((_lf.classify_states(h) == "load_follow").astype(int).rename(r))
+    if not frames:
+        return None
+    mat = pd.concat(frames, axis=1).fillna(0)
+    simul = mat.sum(axis=1)
+    fig = go.Figure(go.Histogram(x=simul, marker_color=COLORS["planned"],
+                                 nbinsx=int(simul.max()) + 1))
+    fig.add_vline(x=simul.max(), line=dict(color="#DC2626", width=2, dash="dash"),
+                  annotation_text=f"max {int(simul.max())}", annotation_position="top")
+    fig.update_layout(xaxis_title="N. reattori in modulazione simultanea",
+                      yaxis_title="N. ore", height=340, margin=dict(t=10, b=30),
+                      showlegend=False)
+    return fig
+
+
 def lf_state_stack(hourly: pd.DataFrame, freq: str = "ME") -> go.Figure:
     """Quota di ore in ciascuno stato operativo nel tempo (area impilata)."""
     states = _lf.classify_states(hourly)
@@ -508,13 +708,13 @@ def lf_diurnal_profile(hourly: pd.DataFrame) -> go.Figure:
         fill="tozeroy", fillcolor="rgba(37,99,235,0.12)",
     ), secondary_y=False)
     fig.add_trace(go.Bar(
-        x=d["hour"], y=d["ramp_pct"], name="Rampa media (% Pnom/h)",
-        marker_color=["#EA580C" if v >= 0 else "#9333EA" for v in d["ramp_pct"]],
+        x=d["hour"], y=d["ramp_pct_min"], name="Rampa media (% Pnom/min)",
+        marker_color=["#EA580C" if v >= 0 else "#9333EA" for v in d["ramp_pct_min"]],
         opacity=0.6,
     ), secondary_y=True)
     fig.update_xaxes(title_text="Ora del giorno", tickmode="linear", dtick=2)
     fig.update_yaxes(title_text="Produzione (% Pnom)", secondary_y=False, range=[0, 100])
-    fig.update_yaxes(title_text="Rampa media (% Pnom/h)", secondary_y=True)
+    fig.update_yaxes(title_text="Rampa media (% Pnom/min)", secondary_y=True)
     fig.update_layout(height=340, margin=dict(t=10, b=30),
                       legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
     return fig
@@ -603,17 +803,14 @@ def fleet_reactors_modulating(hourly_by_reactor: dict, reactors: list[str],
         return None
     mat = pd.concat(frames, axis=1).fillna(0)
     modulating = mat.sum(axis=1).resample(freq).mean()
-    online = (pd.concat(
-        [(_lf.classify_states(hourly_by_reactor[r].loc[modulating.index.min():modulating.index.max()])
-          .isin(["load_follow", "full"])).astype(int)
-         for r in reactors if r in hourly_by_reactor], axis=1
-    ).fillna(0).sum(axis=1).resample(freq).mean()) if reactors else None
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=modulating.index, y=modulating.values,
                              name="Reattori in load-following",
                              fill="tozeroy", line=dict(color=COLORS["planned"], width=1.5),
                              fillcolor="rgba(245,158,11,0.2)"))
+    fig.add_hline(y=len(frames), line=dict(color="#94A3B8", width=1, dash="dash"),
+                  annotation_text=f"selezionati: {len(frames)}", annotation_position="top left")
     fig.update_layout(yaxis_title="N. reattori modulanti",
                       height=340, margin=dict(t=10, b=30),
                       legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
