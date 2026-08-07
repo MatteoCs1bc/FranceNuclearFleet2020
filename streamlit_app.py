@@ -355,13 +355,13 @@ if mode == "Reattore singolo":
         st.session_state["selected_reactor"] = chosen
         selected = [chosen]
         st.sidebar.caption("Ordinati per anno di accensione (vecchi → nuovi)")
-    else:
-        # Flotta INTERA di default; filtro rapido per palier
-        paliers = sorted({info[r]["palier"] for r in reactors if info.get(r, {}).get("matched")})
-        pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)", paliers, default=[])
-        pool = [r for r in reactors_sorted if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
-        selected = st.sidebar.multiselect("Reattori", reactors_sorted, default=pool, format_func=label)
-        st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
+        else:
+            # Flotta INTERA di default; filtro rapido per palier
+            paliers = sorted({info[r]["palier"] for r in reactors if info.get(r, {}).get("matched")})
+            pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)", paliers, default=[])
+            pool = [r for r in reactors_sorted if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
+            selected = st.sidebar.multiselect("Reattori", reactors_sorted, default=pool, format_func=label)
+            st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
     
 
     # Range temporale globale
