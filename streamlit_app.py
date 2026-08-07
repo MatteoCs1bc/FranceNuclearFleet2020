@@ -334,7 +334,6 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
             reactors_sorted,
             index=chosen_idx,
             format_func=label,
-            key="reactor_select_box_key"
         )
         st.session_state["selected_reactor"] = chosen
         selected = [chosen]
@@ -450,14 +449,12 @@ def render_main_map(reactors_sorted, chosen):
             config={"scrollZoom": True} 
         )
         
-        if event and "selection" in event and event["selection"]["points"]:
+    if event and "selection" in event and event["selection"]["points"]:
             clicked_r = event["selection"]["points"][0]["customdata"][0]
             
             if clicked_r != st.session_state.get("selected_reactor"):
                 st.session_state["selected_reactor"] = clicked_r
-                # QUESTA È LA RIGA MAGICA CHE RISOLVE IL PROBLEMA:
-                st.session_state["reactor_select_box_key"] = clicked_r 
-                st.rerun()
+                st.rerun()  # Solo questo, senza la riga "reactor_select_box_key"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Vista: Reattore singolo (questo c'era già)
