@@ -300,6 +300,7 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
     reactors = list(hourly.keys())
     st.sidebar.divider()
     st.sidebar.subheader("🎛️ Selezione")
+    
 
     # Etichette con palier + anno, ordinate per età (vecchi → nuovi)
     enr = enrich_reactor_list(reactors, _metadata_cached())
@@ -338,14 +339,11 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
     #                                       default=pool, format_func=label)
     #     st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
 
-    if mode == "Reattore singolo":
-        import plotly.express as px
-
+if mode == "Reattore singolo":
         # Inizializza lo stato se non presente
         if "selected_reactor" not in st.session_state or st.session_state["selected_reactor"] not in reactors_sorted:
             st.session_state["selected_reactor"] = reactors_sorted[0]
 
-        # 1. Menu a tendina
         chosen_idx = reactors_sorted.index(st.session_state["selected_reactor"])
         chosen = st.sidebar.selectbox(
             "Reattore",
@@ -357,46 +355,13 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
         st.session_state["selected_reactor"] = chosen
         selected = [chosen]
         st.sidebar.caption("Ordinati per anno di accensione (vecchi → nuovi)")
-
-        # 2. Mappa interattiva nella Sidebar
-        with st.sidebar.expander("🗺️ Seleziona da mappa", expanded=True):
-            map_rows = []
-            for r in reactors_sorted:
-                coords = REACTOR_COORDS.get(r)
-                if coords:
-                    map_rows.append({
-                        "Reattore": r,
-                        "lat": coords[0],
-                        "lon": coords[1],
-                        "Selezionato": "Selezionato" if r == chosen else "Altri"
-                    })
-
-            if map_rows:
-                df_map = pd.DataFrame(map_rows)
-                fig_map = px.scatter_mapbox(
-                    df_map,
-                    lat="lat",
-                    lon="lon",
-                    hover_name="Reattore",
-                    color="Selezionato",
-                    color_discrete_map={"Selezionato": "red", "Altri": "#1F77B4"},
-                    zoom=4.2,
-                    center={"lat": 46.6033, "lon": 1.8883},
-                    mapbox_style="open-street-map",
-                    height=280
-                )
-                fig_map.update_traces(marker=dict(size=9))
-                fig_map.update_layout(showlegend=False, margin={"r":0, "t":0, "l":0, "b":0})
-
-                # Evento di selezione al click sulla mappa
-                event = st.plotly_chart(fig_map, use_container_width=True, on_select="rerun", key="map_click_event")
-                if event and "selection" in event and event["selection"]["points"]:
-                    pt_idx = event["selection"]["points"][0]["point_index"]
-                    clicked_r = df_map.iloc[pt_idx]["Reattore"]
-                    if clicked_r != st.session_state["selected_reactor"]:
-                        st.session_state["selected_reactor"] = clicked_r
-                        st.rerun()
-
+    else:
+        # Flotta INTERA di default; filtro rapido per palier
+        paliers = sorted({info[r]["palier"] for r in reactors if info.get(r, {}).get("matched")})
+        pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)", paliers, default=[])
+        pool = [r for r in reactors_sorted if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
+        selected = st.sidebar.multiselect("Reattori", reactors_sorted, default=pool, format_func=label)
+        st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
     
 
     # Range temporale globale
@@ -438,6 +403,67 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
 # ─────────────────────────────────────────────────────────────────────────────
 # Vista: Reattore singolo
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Questa è la fine di period_and_reactor_controls:
+    st.sidebar.caption(f"📅 {date_from} → {date_to}")
+    return mode, selected, date_from, date_to, reactors_sorted
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PASSO 2: INCOLLA QUI LA NUOVA FUNZIONE MAPPA
+# ─────────────────────────────────────────────────────────────────────────────
+def render_main_map(reactors_sorted, chosen):
+    import plotly.express as px
+
+    map_rows = []
+    for r in reactors_sorted:
+        coords = REACTOR_COORDS.get(r)
+        if coords:
+            map_rows.append({
+                "Reattore": r,
+                "lat": coords[0],
+                "lon": coords[1],
+                "Stato": "Selezionato" if r == chosen else "Altri reattori"
+            })
+
+    if not map_rows:
+        return
+
+    df_map = pd.DataFrame(map_rows)
+    fig_map = px.scatter_mapbox(
+        df_map,
+        lat="lat",
+        lon="lon",
+        hover_name="Reattore",
+        color="Stato",
+        color_discrete_map={"Selezionato": "#EF4444", "Altri reattori": "#3B82F6"},
+        zoom=5.3,
+        center={"lat": 46.6033, "lon": 2.2},
+        mapbox_style="open-street-map",
+        height=480
+    )
+    
+    fig_map.update_traces(marker=dict(size=13, opacity=0.85))
+    fig_map.update_layout(
+        margin={"r": 0, "t": 10, "l": 0, "b": 10},
+        legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.01, bgcolor="rgba(255,255,255,0.7)")
+    )
+
+    with st.expander("🗺️ **Mappa interattiva del parco nucleare** (clicca un pallino per selezionare)", expanded=True):
+        event = st.plotly_chart(fig_map, use_container_width=True, on_select="rerun", key="main_map_click_event")
+        if event and "selection" in event and event["selection"]["points"]:
+            pt_idx = event["selection"]["points"][0]["point_index"]
+            clicked_r = df_map.iloc[pt_idx]["Reattore"]
+            if clicked_r != st.session_state.get("selected_reactor"):
+                st.session_state["selected_reactor"] = clicked_r
+                st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vista: Reattore singolo (questo c'era già)
+# ─────────────────────────────────────────────────────────────────────────────
+def render_single(reactor, hourly, unavail_data, date_from, date_to):
+    ...
 
 def render_single(reactor, hourly, unavail_data, date_from, date_to):
     h_full = hourly[reactor]
