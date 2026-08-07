@@ -365,13 +365,14 @@ else:
     
 
     # Range temporale globale
+# Range temporale globale
     all_idx = pd.DatetimeIndex([])
     for r in (selected or reactors):
         if r in hourly:
             all_idx = all_idx.union(hourly[r].index)
+            
     if len(all_idx) == 0:
-        return mode, selected, None, None
-    min_d, max_d = all_idx.min().date(), all_idx.max().date()
+        return mode, selected, None, None, reactors_sorted
 
     st.sidebar.markdown("**Periodo**")
     quick = st.sidebar.selectbox(
@@ -396,15 +397,6 @@ else:
         else:
             date_from, date_to = min_d, max_d
 
-    st.sidebar.caption(f"📅 {date_from} → {date_to}")
-    return mode, selected, date_from, date_to
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Vista: Reattore singolo
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Questa è la fine di period_and_reactor_controls:
     st.sidebar.caption(f"📅 {date_from} → {date_to}")
     return mode, selected, date_from, date_to, reactors_sorted
 
