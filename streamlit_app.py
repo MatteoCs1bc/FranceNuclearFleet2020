@@ -300,7 +300,6 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
     reactors = list(hourly.keys())
     st.sidebar.divider()
     st.sidebar.subheader("🎛️ Selezione")
-    
 
     # Etichette con palier + anno, ordinate per età (vecchi → nuovi)
     enr = enrich_reactor_list(reactors, _metadata_cached())
@@ -323,23 +322,7 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
     mode = st.sidebar.radio("Modalità analisi",
                             ["Reattore singolo", "Aggregata (flotta)"])
 
-    # if mode == "Reattore singolo":
-    #     chosen = st.sidebar.selectbox("Reattore", reactors_sorted, format_func=label)
-    #     selected = [chosen]
-    #     st.sidebar.caption("Ordinati per anno di accensione (vecchi → nuovi)")
-    # else:
-    #     # Flotta INTERA di default; filtro rapido per palier
-    #     paliers = sorted({info[r]["palier"] for r in reactors
-    #                       if info.get(r, {}).get("matched")})
-    #     pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)",
-    #                                       paliers, default=[])
-    #     pool = [r for r in reactors_sorted
-    #             if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
-    #     selected = st.sidebar.multiselect("Reattori", reactors_sorted,
-    #                                       default=pool, format_func=label)
-    #     st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
-
-if mode == "Reattore singolo":
+    if mode == "Reattore singolo":
         # Inizializza lo stato se non presente
         if "selected_reactor" not in st.session_state or st.session_state["selected_reactor"] not in reactors_sorted:
             st.session_state["selected_reactor"] = reactors_sorted[0]
@@ -355,17 +338,15 @@ if mode == "Reattore singolo":
         st.session_state["selected_reactor"] = chosen
         selected = [chosen]
         st.sidebar.caption("Ordinati per anno di accensione (vecchi → nuovi)")
-else:
-     # Flotta INTERA di default; filtro rapido per palier
-    paliers = sorted({info[r]["palier"] for r in reactors if info.get(r, {}).get("matched")})
-    pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)", paliers, default=[])
-    pool = [r for r in reactors_sorted if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
-    selected = st.sidebar.multiselect("Reattori", reactors_sorted, default=pool, format_func=label)
-    st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
-    
+    else:
+        # Flotta INTERA di default; filtro rapido per palier
+        paliers = sorted({info[r]["palier"] for r in reactors if info.get(r, {}).get("matched")})
+        pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)", paliers, default=[])
+        pool = [r for r in reactors_sorted if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
+        selected = st.sidebar.multiselect("Reattori", reactors_sorted, default=pool, format_func=label)
+        st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
 
     # Range temporale globale
-# Range temporale globale
     all_idx = pd.DatetimeIndex([])
     for r in (selected or reactors):
         if r in hourly:
@@ -373,6 +354,8 @@ else:
             
     if len(all_idx) == 0:
         return mode, selected, None, None, reactors_sorted
+        
+    min_d, max_d = all_idx.min().date(), all_idx.max().date()
 
     st.sidebar.markdown("**Periodo**")
     quick = st.sidebar.selectbox(
