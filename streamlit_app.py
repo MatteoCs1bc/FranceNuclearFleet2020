@@ -388,8 +388,11 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
 # ─────────────────────────────────────────────────────────────────────────────
 # PASSO 2: INCOLLA QUI LA NUOVA FUNZIONE MAPPA
 # ─────────────────────────────────────────────────────────────────────────────
+
 def render_main_map(reactors_sorted, chosen):
     import plotly.express as px
+    import pandas as pd
+    import streamlit as st
 
     map_rows = []
     for r in reactors_sorted:
@@ -422,18 +425,28 @@ def render_main_map(reactors_sorted, chosen):
     fig_map.update_traces(marker=dict(size=13, opacity=0.85))
     fig_map.update_layout(
         margin={"r": 0, "t": 10, "l": 0, "b": 10},
-        legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.01, bgcolor="rgba(255,255,255,0.7)")
+        legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.01, bgcolor="rgba(255,255,255,0.7)"),
+        clickmode="event+select"  # <--- 1. ABILITA IL CLICK SUL PALLINO
     )
 
     with st.expander("🗺️ **Mappa interattiva del parco nucleare** (clicca un pallino per selezionare)", expanded=True):
-        event = st.plotly_chart(fig_map, use_container_width=True, on_select="rerun", key="main_map_click_event")
+        # 2. config={"scrollZoom": True} ABILITA LA ROTELLA DEL MOUSE
+        event = st.plotly_chart(
+            fig_map, 
+            use_container_width=True, 
+            on_select="rerun", 
+            key="main_map_click_event",
+            config={"scrollZoom": True} 
+        )
+        
+        # 3. Quando clicchi, aggiorna lo stato e ricarica (sincronizzando la tendina)
         if event and "selection" in event and event["selection"]["points"]:
             pt_idx = event["selection"]["points"][0]["point_index"]
             clicked_r = df_map.iloc[pt_idx]["Reattore"]
+            
             if clicked_r != st.session_state.get("selected_reactor"):
                 st.session_state["selected_reactor"] = clicked_r
                 st.rerun()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Vista: Reattore singolo (questo c'era già)
