@@ -30,6 +30,26 @@ from src.metadata import load_metadata, match, build_lookup, enrich_reactor_list
 from src import charts
 from src import loadfollowing as lf
 
+REACTOR_COORDS = {
+    "Belleville 1": (47.5092, 2.8753), "Belleville 2": (47.5103, 2.8758),
+    "Blayais 1": (45.2551, -0.6936), "Blayais 2": (45.2556, -0.6931), "Blayais 3": (45.2562, -0.6925), "Blayais 4": (45.2567, -0.6920),
+    "Bugey 2": (45.7981, 5.2703), "Bugey 3": (45.7986, 5.2708), "Bugey 4": (45.7991, 5.2713), "Bugey 5": (45.7996, 5.2718),
+    "Cattenom 1": (49.4151, 6.2175), "Cattenom 2": (49.4156, 6.2180), "Cattenom 3": (49.4161, 6.2185), "Cattenom 4": (49.4166, 6.2190),
+    "Chinon B1": (47.2301, 0.1701), "Chinon B2": (47.2306, 0.1706), "Chinon B3": (47.2311, 0.1711), "Chinon B4": (47.2316, 0.1716),
+    "Chooz B1": (50.0901, 4.7891), "Chooz B2": (50.0906, 4.7896),
+    "Civaux 1": (46.4561, 0.6523), "Civaux 2": (46.4566, 0.6528),
+    "Cruas 1": (44.6326, 4.7562), "Cruas 2": (44.6331, 4.7567), "Cruas 3": (44.6336, 4.7572), "Cruas 4": (44.6341, 4.7577),
+    "Dampierre 1": (47.7331, 2.5181), "Dampierre 2": (47.7336, 2.5186), "Dampierre 3": (47.7341, 2.5191), "Dampierre 4": (47.7346, 2.5196),
+    "Flamanville 1": (49.5356, -1.8824), "Flamanville 2": (49.5361, -1.8819), "Flamanville 3": (49.5370, -1.8790),
+    "Golfech 1": (44.1064, 0.8448), "Golfech 2": (44.1069, 0.8453),
+    "Gravelines 1": (51.0148, 2.1364), "Gravelines 2": (51.0151, 2.1367), "Gravelines 3": (51.0154, 2.1370), "Gravelines 4": (51.0157, 2.1373), "Gravelines 5": (51.0160, 2.1376), "Gravelines 6": (51.0163, 2.1379),
+    "Nogent 1": (48.5148, 3.5173), "Nogent 2": (48.5153, 3.5178),
+    "Paluel 1": (49.8576, 0.6331), "Paluel 2": (49.8581, 0.6336), "Paluel 3": (49.8586, 0.6341), "Paluel 4": (49.8591, 0.6346),
+    "Penly 1": (49.9753, 1.2117), "Penly 2": (49.9758, 1.2122),
+    "Saint-Alban 1": (45.4034, 4.7553), "Saint-Alban 2": (45.4039, 4.7558),
+    "Saint-Laurent B1": (47.7195, 1.5770), "Saint-Laurent B2": (47.7200, 1.5775),
+    "Tricastin 1": (44.3287, 4.7312), "Tricastin 2": (44.3292, 4.7317), "Tricastin 3": (44.3297, 4.7322), "Tricastin 4": (44.3302, 4.7327)
+}
 
 @st.cache_data(show_spinner=False)
 def _metadata_cached():
@@ -302,21 +322,82 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
     mode = st.sidebar.radio("Modalità analisi",
                             ["Reattore singolo", "Aggregata (flotta)"])
 
+    # if mode == "Reattore singolo":
+    #     chosen = st.sidebar.selectbox("Reattore", reactors_sorted, format_func=label)
+    #     selected = [chosen]
+    #     st.sidebar.caption("Ordinati per anno di accensione (vecchi → nuovi)")
+    # else:
+    #     # Flotta INTERA di default; filtro rapido per palier
+    #     paliers = sorted({info[r]["palier"] for r in reactors
+    #                       if info.get(r, {}).get("matched")})
+    #     pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)",
+    #                                       paliers, default=[])
+    #     pool = [r for r in reactors_sorted
+    #             if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
+    #     selected = st.sidebar.multiselect("Reattori", reactors_sorted,
+    #                                       default=pool, format_func=label)
+    #     st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
+
     if mode == "Reattore singolo":
-        chosen = st.sidebar.selectbox("Reattore", reactors_sorted, format_func=label)
+        import plotly.express as px
+
+        # Inizializza lo stato se non presente
+        if "selected_reactor" not in st.session_state or st.session_state["selected_reactor"] not in reactors_sorted:
+            st.session_state["selected_reactor"] = reactors_sorted[0]
+
+        # 1. Menu a tendina
+        chosen_idx = reactors_sorted.index(st.session_state["selected_reactor"])
+        chosen = st.sidebar.selectbox(
+            "Reattore",
+            reactors_sorted,
+            index=chosen_idx,
+            format_func=label,
+            key="reactor_select_box_key"
+        )
+        st.session_state["selected_reactor"] = chosen
         selected = [chosen]
         st.sidebar.caption("Ordinati per anno di accensione (vecchi → nuovi)")
-    else:
-        # Flotta INTERA di default; filtro rapido per palier
-        paliers = sorted({info[r]["palier"] for r in reactors
-                          if info.get(r, {}).get("matched")})
-        pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)",
-                                          paliers, default=[])
-        pool = [r for r in reactors_sorted
-                if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
-        selected = st.sidebar.multiselect("Reattori", reactors_sorted,
-                                          default=pool, format_func=label)
-        st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
+
+        # 2. Mappa interattiva nella Sidebar
+        with st.sidebar.expander("🗺️ Seleziona da mappa", expanded=True):
+            map_rows = []
+            for r in reactors_sorted:
+                coords = REACTOR_COORDS.get(r)
+                if coords:
+                    map_rows.append({
+                        "Reattore": r,
+                        "lat": coords[0],
+                        "lon": coords[1],
+                        "Selezionato": "Selezionato" if r == chosen else "Altri"
+                    })
+
+            if map_rows:
+                df_map = pd.DataFrame(map_rows)
+                fig_map = px.scatter_mapbox(
+                    df_map,
+                    lat="lat",
+                    lon="lon",
+                    hover_name="Reattore",
+                    color="Selezionato",
+                    color_discrete_map={"Selezionato": "red", "Altri": "#1F77B4"},
+                    zoom=4.2,
+                    center={"lat": 46.6033, "lon": 1.8883},
+                    mapbox_style="open-street-map",
+                    height=280
+                )
+                fig_map.update_traces(marker=dict(size=9))
+                fig_map.update_layout(showlegend=False, margin={"r":0, "t":0, "l":0, "b":0})
+
+                # Evento di selezione al click sulla mappa
+                event = st.plotly_chart(fig_map, use_container_width=True, on_select="rerun", key="map_click_event")
+                if event and "selection" in event and event["selection"]["points"]:
+                    pt_idx = event["selection"]["points"][0]["point_index"]
+                    clicked_r = df_map.iloc[pt_idx]["Reattore"]
+                    if clicked_r != st.session_state["selected_reactor"]:
+                        st.session_state["selected_reactor"] = clicked_r
+                        st.rerun()
+
+    
 
     # Range temporale globale
     all_idx = pd.DatetimeIndex([])
