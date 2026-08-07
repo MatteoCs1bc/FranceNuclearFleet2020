@@ -409,11 +409,14 @@ def render_main_map(reactors_sorted, chosen):
         return
 
     df_map = pd.DataFrame(map_rows)
+    
+    # La magia è qui: custom_data=["Reattore"] incapsula il nome esatto dentro ogni punto
     fig_map = px.scatter_mapbox(
         df_map,
         lat="lat",
         lon="lon",
         hover_name="Reattore",
+        custom_data=["Reattore"],  
         color="Stato",
         color_discrete_map={"Selezionato": "#EF4444", "Altri reattori": "#3B82F6"},
         zoom=5.3,
@@ -422,15 +425,23 @@ def render_main_map(reactors_sorted, chosen):
         height=480
     )
     
-    fig_map.update_traces(marker=dict(size=13, opacity=0.85))
+    fig_map.update_traces(marker=dict(size=14, opacity=0.95))
+    
+    # Legenda cazzuta: sfondo bianco pieno, testo nero, bordo nero
     fig_map.update_layout(
         margin={"r": 0, "t": 10, "l": 0, "b": 10},
-        legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.01, bgcolor="rgba(255,255,255,0.7)"),
-        clickmode="event+select"  # <--- 1. ABILITA IL CLICK SUL PALLINO
+        legend=dict(
+            title=None,
+            yanchor="top", y=0.97, xanchor="left", x=0.01, 
+            bgcolor="white", 
+            bordercolor="black", 
+            borderwidth=2,
+            font=dict(color="black", size=14)
+        ),
+        clickmode="event+select"
     )
 
     with st.expander("🗺️ **Mappa interattiva del parco nucleare** (clicca un pallino per selezionare)", expanded=True):
-        # 2. config={"scrollZoom": True} ABILITA LA ROTELLA DEL MOUSE
         event = st.plotly_chart(
             fig_map, 
             use_container_width=True, 
@@ -439,10 +450,9 @@ def render_main_map(reactors_sorted, chosen):
             config={"scrollZoom": True} 
         )
         
-        # 3. Quando clicchi, aggiorna lo stato e ricarica (sincronizzando la tendina)
+        # Adesso andiamo a leggere il nome del reattore dal customdata in modo infallibile
         if event and "selection" in event and event["selection"]["points"]:
-            pt_idx = event["selection"]["points"][0]["point_index"]
-            clicked_r = df_map.iloc[pt_idx]["Reattore"]
+            clicked_r = event["selection"]["points"][0]["customdata"][0]
             
             if clicked_r != st.session_state.get("selected_reactor"):
                 st.session_state["selected_reactor"] = clicked_r
