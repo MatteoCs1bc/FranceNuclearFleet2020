@@ -41,6 +41,7 @@ REACTOR_COORDS = {
     "Cruas 1": (44.6326, 4.7562), "Cruas 2": (44.6331, 4.7567), "Cruas 3": (44.6336, 4.7572), "Cruas 4": (44.6341, 4.7577),
     "Dampierre 1": (47.7331, 2.5181), "Dampierre 2": (47.7336, 2.5186), "Dampierre 3": (47.7341, 2.5191), "Dampierre 4": (47.7346, 2.5196),
     "Flamanville 1": (49.5356, -1.8824), "Flamanville 2": (49.5361, -1.8819), "Flamanville 3": (49.5370, -1.8790),
+    "Fessenheim 1": (47.9033, 7.5722), "Fessenheim 2": (47.9038, 7.5727),
     "Golfech 1": (44.1064, 0.8448), "Golfech 2": (44.1069, 0.8453),
     "Gravelines 1": (51.0148, 2.1364), "Gravelines 2": (51.0151, 2.1367), "Gravelines 3": (51.0154, 2.1370), "Gravelines 4": (51.0157, 2.1373), "Gravelines 5": (51.0160, 2.1376), "Gravelines 6": (51.0163, 2.1379),
     "Nogent 1": (48.5148, 3.5173), "Nogent 2": (48.5153, 3.5178),
@@ -871,6 +872,7 @@ def main():
         return
 
     if mode == "Reattore singolo":
+        render_main_map(reactors_sorted, selected[0])  # <--- È QUESTA LA RIGA MAGICA CHE MANCA!
         render_single(selected[0], hourly, unavail, date_from, date_to)
     else:
         render_fleet(selected, hourly, nominal, date_from, date_to)
