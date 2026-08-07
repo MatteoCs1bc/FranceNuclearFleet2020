@@ -421,7 +421,7 @@ def render_main_map(reactors_sorted, chosen):
         zoom=5.3,
         center={"lat": 46.6033, "lon": 2.2},
         mapbox_style="open-street-map",
-        height=480
+        height=700
     )
     
     fig_map.update_traces(marker=dict(size=14, opacity=0.95))
