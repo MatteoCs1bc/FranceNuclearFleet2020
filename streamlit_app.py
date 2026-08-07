@@ -370,7 +370,7 @@ else:
         if r in hourly:
             all_idx = all_idx.union(hourly[r].index)
     if len(all_idx) == 0:
-        return mode, selected, None, None
+    return mode, selected, None, None
     min_d, max_d = all_idx.min().date(), all_idx.max().date()
 
     st.sidebar.markdown("**Periodo**")
