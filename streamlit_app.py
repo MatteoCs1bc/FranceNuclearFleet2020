@@ -865,7 +865,7 @@ def main():
             for e in errors[:20]:
                 st.text(e)
 
-    mode, selected, date_from, date_to = period_and_reactor_controls(hourly, nominal)
+    mode, selected, date_from, date_to, reactors_sorted = period_and_reactor_controls(hourly, nominal)
     if date_from is None:
         st.warning("Nessun dato disponibile.")
         return
