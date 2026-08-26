@@ -253,3 +253,28 @@ Sono supportati anche i vecchi nomi `Availability vs production (...)_<Reattore>
 I nomi vengono canonicalizzati: `Dampierre En Burly 3` → `Dampierre 3`,
 `Nogent Sur Seine 1` → `Nogent 1`, `St Alban St Maurice 2` → `Saint-Alban 2`,
 `CHOOZ B 1` → `Chooz 1`.
+
+---
+
+## 🌡️ Siccità e vincoli ambientali
+
+Tab dedicato nella vista flotta (+ nota per singolo reattore) sulle indisponibilità
+da **temperatura e portata dei fiumi, ondate di calore, siccità**.
+
+**Metodo e suo limite.** Nei dati non esiste un'etichetta esplicita "siccità" o
+"canicule" — cercandole non si trova nulla. Si usa la categoria
+*"Causes externes liées à l'environnement / Environmental issues"* come **proxy**.
+Il proxy regge perché mostra entrambe le firme attese:
+
+- **stagionale**: ~76% degli eventi tra giugno e settembre, quasi zero in inverno;
+- **geografica**: ~98% su impianti **fluviali o d'estuario** (Rodano, Mosa, Reno,
+  Garonna, Loira); i costieri (Gravelines, Paluel, Penly, Flamanville) sono
+  praticamente immuni.
+
+Sul parco 2015–2026 la stima è di **~9,9 TWh persi** (~0,27% della produzione),
+con anno peggiore il **2020** e Chooz (sulla Mosa, fiume di piccola portata) come
+sito più colpito.
+
+> La categoria include anche vincoli ambientali non climatici (alghe, detriti alle
+> prese d'acqua): i numeri vanno letti come "vincoli ambientali", di cui caldo e
+> magra dei fiumi sono la componente dominante estiva.
