@@ -676,6 +676,29 @@ def env_by_cooling(events: pd.DataFrame) -> go.Figure | None:
     return fig
 
 
+def deep_modulations_fleet_hist(dist: pd.Series) -> go.Figure | None:
+    """
+    Quanti giorni-reattore hanno avuto 1, 2, 3… discese profonde nello stesso
+    giorno. Mostra che il caso normale è UNA sola.
+    """
+    if dist is None or len(dist) == 0:
+        return None
+    tot = dist.sum()
+    labels = [f"{int(k)}" for k in dist.index]
+    pct = (dist / tot * 100).round(1)
+    fig = go.Figure(go.Bar(
+        x=labels, y=dist.values, marker_color=COLORS["ramp_down"],
+        text=[f"{v:,.0f}<br>({p}%)" for v, p in zip(dist.values, pct)],
+        textposition="outside",
+    ))
+    fig.update_layout(
+        xaxis_title="Discese profonde (>40% Pnom) nello stesso giorno",
+        yaxis_title="Giorni-reattore", height=330, margin=dict(t=30, b=30),
+        showlegend=False,
+    )
+    return fig
+
+
 def lf_ramp_envelope(hourly: pd.DataFrame) -> go.Figure:
     """
     Inviluppo degli eventi-rampa online: ogni punto è una manovra

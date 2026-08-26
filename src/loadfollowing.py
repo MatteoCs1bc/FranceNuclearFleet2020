@@ -350,6 +350,73 @@ def fleet_modulation_capacity(hourly_by_reactor: dict, reactors: list,
     }
 
 
+def deep_modulations_fleet(hourly_by_reactor: dict, reactors: list,
+                           date_from=None, date_to=None,
+                           threshold_pct: float = 40.0) -> pd.Series:
+    """
+    Distribuzione di flotta: quanti "giorni-reattore" hanno avuto 1, 2, 3…
+    discese profonde (> threshold_pct) nello stesso giorno.
+    Indice = n. discese nel giorno, valore = n. di giorni-reattore.
+    """
+    from src.metrics import slice_period
+    tot = pd.Series(dtype=float)
+    for r in reactors:
+        if r not in hourly_by_reactor:
+            continue
+        h = hourly_by_reactor[r]
+        if date_from is not None:
+            h = slice_period(h, date_from, date_to)
+        if h.empty:
+            continue
+        d = deep_modulations(h, threshold_pct)
+        if not d.empty:
+            tot = tot.add(d["n_deep_down"].value_counts(), fill_value=0)
+    return tot.sort_index()
+
+
+def simultaneity_stats(simul: pd.Series, n_reactors: int) -> dict:
+    """
+    Statistiche sulla modulazione simultanea: non basta il picco, conta
+    quanto è RARO. Restituisce media, mediana, percentili e la quota di ore
+    sopra alcune soglie.
+    """
+    if simul is None or len(simul) == 0:
+        return {}
+    q = simul.quantile
+    out = {
+        "n_reactors": n_reactors,
+        "mean": float(simul.mean()),
+        "median": float(simul.median()),
+        "p90": float(q(0.90)),
+        "p99": float(q(0.99)),
+        "max": int(simul.max()),
+        "pct_hours_over_quarter": float((simul >= n_reactors * 0.25).mean() * 100),
+        "pct_hours_over_half": float((simul >= n_reactors * 0.5).mean() * 100),
+        "pct_hours_zero": float((simul == 0).mean() * 100),
+    }
+    return out
+
+
+def recovery_breakdown(recovery: pd.Series) -> dict:
+    """
+    Ripartizione onesta dei tempi di recupero dopo una discesa profonda.
+    NB: la maggior parte delle risalite è RAPIDA (<6 h) — coerente con la
+    fisica: se rientri presto, lo xeno-135 non ha ancora avuto tempo di
+    accumularsi (il picco arriva ~6–9 h dopo la riduzione). Il vincolo da
+    xeno morde sulle riduzioni profonde e PROLUNGATE, non sui tuffi brevi.
+    """
+    if recovery is None or len(recovery) == 0:
+        return {}
+    return {
+        "n": int(len(recovery)),
+        "median_h": float(recovery.median()),
+        "mean_h": float(recovery.mean()),
+        "pct_under_6h": float((recovery < 6).mean() * 100),
+        "pct_6_16h": float(((recovery >= 6) & (recovery <= 16)).mean() * 100),
+        "pct_over_16h": float((recovery > 16).mean() * 100),
+    }
+
+
 def lf_summary(hourly: pd.DataFrame) -> dict:
     """KPI sintetici di load-following per un reattore/flotta nel periodo."""
     if hourly.empty:
