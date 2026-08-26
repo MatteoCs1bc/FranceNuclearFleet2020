@@ -549,10 +549,25 @@ def render_single(reactor, hourly, unavail_data, date_from, date_to):
         pk = lf.peak_modulation_day(h)
         if pk:
             st.markdown(f"#### Giorno di massima modulazione: **{pk['date'].date()}**")
+            # Contesto: quanto è ECCEZIONALE quel giorno rispetto agli altri
+            daily_all = lf.daily_load_following(h)
+            ctx = ""
+            if not daily_all.empty:
+                sw = daily_all.loc[daily_all["online_day"], "swing_pct"].dropna()
+                if len(sw) > 5:
+                    med = sw.median()
+                    pct_like = (sw >= pk["swing_pct"] * 0.8).mean() * 100
+                    ctx = (
+                        f" Per confronto, la **giornata tipica** di questo reattore modula "
+                        f"il **{med:.0f}%**, e solo il **{pct_like:.1f}%** dei giorni "
+                        f"arriva vicino a questo massimo."
+                    )
             st.caption(
                 f"Escursione del {pk['swing_pct']:.0f}% Pnom in giornata, "
-                f"{pk['n_cycles']} ciclo/i. È il massimo che questo reattore ha modulato "
-                "restando in marcia nel periodo — il suo limite pratico osservato."
+                f"{pk['n_cycles']} ciclo/i — il massimo osservato nel periodo."
+                + ctx +
+                " ⚠️ Un singolo giorno record non descrive il funzionamento normale: "
+                "guarda la mediana."
             )
             fig = charts.peak_day_profile(pk, reactor)
             if fig:
@@ -570,49 +585,52 @@ def render_single(reactor, hourly, unavail_data, date_from, date_to):
     # --- VINCOLI FISICI (xeno) ---
     with tabs[1]:
         st.caption(
-            "Perché un reattore non modula come una turbina a gas: dopo una discesa "
-            "profonda, l'**xeno-135** (prodotto di fissione che assorbe neutroni) si "
-            "accumula e ritarda la risalita di potenza. Qui il vincolo si vede nei dati."
+            "Cosa limita davvero la modulazione. Lo **xeno-135** (prodotto di fissione "
+            "che assorbe neutroni) si accumula quando abbassi la potenza e raggiunge il "
+            "picco 6–9 ore dopo: penalizza le riduzioni **profonde e prolungate**. "
+            "Se invece il rientro è rapido, lo xeno non fa in tempo ad accumularsi — "
+            "e infatti nei dati la maggior parte delle risalite è veloce."
         )
         rec = lf.xenon_recovery(h, threshold_pct=40)
         deep = lf.deep_modulations(h, threshold_pct=40)
+        rb = lf.recovery_breakdown(rec)
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Recupero mediano", f"{rec.median():.0f} h" if len(rec) else "—",
-                  help="Tempo tipico tra un ramp-down >40% e la successiva risalita")
+        c1.metric("Recupero mediano", f"{rb['median_h']:.0f} h" if rb else "—",
+                  help="Tempo tra un ramp-down >40% e la successiva risalita")
         c2.metric("Max discese profonde/giorno",
                   f"{int(deep['n_deep_down'].max())}" if not deep.empty else "0",
-                  help="Massimo di ramp-down >40% Pnom osservati nello stesso giorno")
-        c3.metric("Risalite nella finestra xeno",
-                  f"{((rec >= 6) & (rec <= 16)).mean()*100:.0f}%" if len(rec) else "—",
-                  help="Quota di risalite tra 6 e 16 h dopo la discesa: la firma del transitorio")
-
-        st.markdown("#### Tempo di recupero dopo un ramp-down profondo")
-        st.caption("Se la modulazione fosse libera, le risalite sarebbero immediate. "
-                   "L'accumulo in 6–16 h è la firma dello xeno.")
-        fig = charts.xenon_recovery_hist(rec)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Nel periodo non ci sono abbastanza ramp-down profondi (>40%) "
-                    "per stimare il recupero. Prova un reattore che modula molto "
-                    "(es. Cattenom 2/3, Belleville 1) o un periodo più ampio.")
+                  help="Massimo di ramp-down >40% Pnom nello stesso giorno")
+        c3.metric("Risalite entro 6 h", f"{rb['pct_under_6h']:.0f}%" if rb else "—",
+                  help="Rientri rapidi, prima che lo xeno si accumuli")
 
         st.markdown("#### Quante discese profonde nello stesso giorno")
-        st.caption("Il tetto pratico è basso: raramente più di 1–2 discese >40% al "
-                   "giorno. Lo xeno impedisce i cicli profondi rapidi e ripetuti.")
+        st.caption(
+            "È il dato più solido: la domanda ha **due** avvallamenti giornalieri "
+            "(notte e mezzogiorno solare), ma il reattore ne segue quasi sempre **uno**."
+        )
         fig = charts.deep_modulations_hist(deep)
         if fig:
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Nel periodo non ci sono discese profonde (>40%) per questo reattore. "
+                    "Prova un forte modulatore (Cattenom 2/3, Belleville 1) o un periodo più ampio.")
 
-        if len(rec):
+        st.markdown("#### Tempo di recupero dopo una discesa profonda")
+        st.caption("La banda rossa è la finestra del picco di xeno (6–16 h).")
+        fig = charts.xenon_recovery_hist(rec)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+
+        if rb:
             st.info(
-                f"**In sintesi** — dopo una discesa >40%, {reactor} risale in media dopo "
-                f"**{rec.mean():.1f} h** (mediana {rec.median():.0f} h); il "
-                f"{((rec>=6)&(rec<=16)).mean()*100:.0f}% delle risalite cade nella finestra "
-                f"xeno (6–16 h). Massimo **{int(deep['n_deep_down'].max()) if not deep.empty else 0} "
-                f"discese profonde** in un solo giorno: è il tetto fisico, incompatibile "
-                f"con la flessibilità libera di una CCGT a gas."
+                f"**Come leggerlo** — {reactor}: risalita mediana in **{rb['median_h']:.0f} h**, "
+                f"il **{rb['pct_under_6h']:.0f}%** entro 6 ore, il {rb['pct_6_16h']:.0f}% "
+                f"nella finestra 6–16 h. Le risalite rapide sono la norma, quindi **non** "
+                "si può dire che lo xeno impedisca di rientrare: il vincolo è sulle "
+                "riduzioni profonde e prolungate. Il limite osservabile è un altro — "
+                f"**massimo {int(deep['n_deep_down'].max()) if not deep.empty else 0} "
+                "discese profonde in un giorno**, e quasi sempre una sola."
             )
 
     # --- PRODUZIONE & CF ---
@@ -744,12 +762,49 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
         if fig:
             st.plotly_chart(fig, use_container_width=True)
 
+        # REALITY CHECK: il picco non basta, conta quanto è raro
+        ss = lf.simultaneity_stats(simul, len(selected))
+        if ss:
+            st.markdown("#### 🔍 Reality check: il picco non è la normalità")
+            st.caption(
+                "Un singolo giorno favorevole (domenica di primavera, molto solare, "
+                "domanda bassa) mostra molti reattori che modulano insieme. Ma su "
+                "tutto il periodo la situazione tipica è un'altra."
+            )
+            r1, r2, r3, r4 = st.columns(4)
+            r1.metric("Picco (max)", f"{ss['max']}/{ss['n_reactors']}")
+            r2.metric("Situazione tipica (mediana)", f"{ss['median']:.0f}/{ss['n_reactors']}")
+            r3.metric("Ore con ≥¼ del parco", f"{ss['pct_hours_over_quarter']:.1f}%")
+            r4.metric("Ore con ≥½ del parco", f"{ss['pct_hours_over_half']:.1f}%")
+            st.caption(
+                f"Il 99° percentile è {ss['p99']:.0f} reattori: anche nelle ore migliori "
+                f"si resta lontani dal picco assoluto. In media modulano {ss['mean']:.0f} "
+                f"reattori su {ss['n_reactors']}."
+            )
+            st.divider()
+
         st.markdown("#### Distribuzione: per quante ore N reattori modulano insieme")
         st.caption("Il picco a sinistra mostra che nella maggior parte delle ore modulano "
                    "pochi reattori: la flessibilità simultanea del parco ha un tetto.")
         fig = charts.fleet_simultaneous_hist(hourly, selected, date_from, date_to)
         if fig:
             st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("#### Quante discese profonde fa un reattore nello stesso giorno")
+        st.caption(
+            "La domanda elettrica ha due avvallamenti al giorno (notte e mezzogiorno "
+            "solare), ma i reattori ne seguono sistematicamente uno solo."
+        )
+        dist = lf.deep_modulations_fleet(hourly, selected, date_from, date_to)
+        fig = charts.deep_modulations_fleet_hist(dist)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+            if len(dist):
+                tot = dist.sum(); one = dist.get(1, 0)
+                st.caption(
+                    f"**{one/tot*100:.0f}%** dei giorni con una modulazione profonda "
+                    f"ne ha **una sola**; massimo osservato: **{int(dist.index.max())}**."
+                )
 
         # Riquadro data-driven: i limiti di flotta, senza editorializzare
         gw_inst = kpi["installed_MW"] / 1000
