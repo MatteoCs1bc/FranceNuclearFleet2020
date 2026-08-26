@@ -627,6 +627,55 @@ def daily_swing_distribution(cap: dict) -> go.Figure | None:
     return fig
 
 
+def env_seasonality(events: pd.DataFrame) -> go.Figure | None:
+    """Stagionalità degli eventi ambientali: la firma estiva di caldo/siccità."""
+    if events is None or events.empty:
+        return None
+    g = events.groupby("month").agg(n=("lost_GWh", "size"),
+                                    gwh=("lost_GWh", "sum")).reindex(range(1, 13)).fillna(0)
+    it = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu",
+          "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]
+    colors = ["#94A3B8"] * 12
+    for m in (5, 6, 7, 8):          # giu-set (0-based)
+        colors[m] = "#DC2626"
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Bar(x=it, y=g["n"], name="N. eventi", marker_color=colors),
+                  secondary_y=False)
+    fig.add_trace(go.Scatter(x=it, y=g["gwh"], name="Energia persa (GWh)",
+                             line=dict(color="#0891B2", width=2.5)),
+                  secondary_y=True)
+    fig.update_yaxes(title_text="N. eventi", secondary_y=False)
+    fig.update_yaxes(title_text="GWh persi", secondary_y=True)
+    fig.update_layout(height=340, margin=dict(t=10, b=30),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+    return fig
+
+
+def env_by_cooling(events: pd.DataFrame) -> go.Figure | None:
+    """Energia persa per sito, colorata per tipo di raffreddamento."""
+    if events is None or events.empty:
+        return None
+    g = (events.groupby(["site", "cooling", "water"])["lost_GWh"]
+         .sum().reset_index().sort_values("lost_GWh"))
+    cmap = {"fiume": "#DC2626", "estuario": "#F59E0B", "mare": "#2563EB", "n/d": "#94A3B8"}
+    fig = go.Figure()
+    for c in ["fiume", "estuario", "mare"]:
+        sub = g[g["cooling"] == c]
+        if sub.empty:
+            continue
+        fig.add_trace(go.Bar(
+            x=sub["lost_GWh"], y=sub["site"], orientation="h",
+            name=c.capitalize(), marker_color=cmap[c],
+            customdata=sub[["water"]].values,
+            hovertemplate="%{y} (%{customdata[0]}): %{x:.0f} GWh<extra></extra>",
+        ))
+    fig.update_layout(xaxis_title="Energia persa (GWh)",
+                      height=max(300, len(g) * 26), margin=dict(t=10, b=30),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+                      barmode="stack")
+    return fig
+
+
 def lf_ramp_envelope(hourly: pd.DataFrame) -> go.Figure:
     """
     Inviluppo degli eventi-rampa online: ogni punto è una manovra
