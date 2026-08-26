@@ -30,27 +30,41 @@ from src.metadata import load_metadata, match, build_lookup, enrich_reactor_list
 from src import charts
 from src import loadfollowing as lf
 
+# Coordinate dei siti (chiavi = nomi CANONICI prodotti da canonicalize_reactor_name:
+# 'Chinon 1' non 'Chinon B1', 'Saint-Laurent 1' non 'Saint-Laurent B1', ecc.)
 REACTOR_COORDS = {
     "Belleville 1": (47.5092, 2.8753), "Belleville 2": (47.5103, 2.8758),
-    "Blayais 1": (45.2551, -0.6936), "Blayais 2": (45.2556, -0.6931), "Blayais 3": (45.2562, -0.6925), "Blayais 4": (45.2567, -0.6920),
-    "Bugey 2": (45.7981, 5.2703), "Bugey 3": (45.7986, 5.2708), "Bugey 4": (45.7991, 5.2713), "Bugey 5": (45.7996, 5.2718),
-    "Cattenom 1": (49.4151, 6.2175), "Cattenom 2": (49.4156, 6.2180), "Cattenom 3": (49.4161, 6.2185), "Cattenom 4": (49.4166, 6.2190),
-    "Chinon B1": (47.2301, 0.1701), "Chinon B2": (47.2306, 0.1706), "Chinon B3": (47.2311, 0.1711), "Chinon B4": (47.2316, 0.1716),
-    "Chooz B1": (50.0901, 4.7891), "Chooz B2": (50.0906, 4.7896),
+    "Blayais 1": (45.2551, -0.6936), "Blayais 2": (45.2556, -0.6931),
+    "Blayais 3": (45.2562, -0.6925), "Blayais 4": (45.2567, -0.6920),
+    "Bugey 2": (45.7981, 5.2703), "Bugey 3": (45.7986, 5.2708),
+    "Bugey 4": (45.7991, 5.2713), "Bugey 5": (45.7996, 5.2718),
+    "Cattenom 1": (49.4151, 6.2175), "Cattenom 2": (49.4156, 6.2180),
+    "Cattenom 3": (49.4161, 6.2185), "Cattenom 4": (49.4166, 6.2190),
+    "Chinon 1": (47.2301, 0.1701), "Chinon 2": (47.2306, 0.1706),
+    "Chinon 3": (47.2311, 0.1711), "Chinon 4": (47.2316, 0.1716),
+    "Chooz 1": (50.0901, 4.7891), "Chooz 2": (50.0906, 4.7896),
     "Civaux 1": (46.4561, 0.6523), "Civaux 2": (46.4566, 0.6528),
-    "Cruas 1": (44.6326, 4.7562), "Cruas 2": (44.6331, 4.7567), "Cruas 3": (44.6336, 4.7572), "Cruas 4": (44.6341, 4.7577),
-    "Dampierre 1": (47.7331, 2.5181), "Dampierre 2": (47.7336, 2.5186), "Dampierre 3": (47.7341, 2.5191), "Dampierre 4": (47.7346, 2.5196),
-    "Flamanville 1": (49.5356, -1.8824), "Flamanville 2": (49.5361, -1.8819), "Flamanville 3": (49.5370, -1.8790),
+    "Cruas 1": (44.6326, 4.7562), "Cruas 2": (44.6331, 4.7567),
+    "Cruas 3": (44.6336, 4.7572), "Cruas 4": (44.6341, 4.7577),
+    "Dampierre 1": (47.7331, 2.5181), "Dampierre 2": (47.7336, 2.5186),
+    "Dampierre 3": (47.7341, 2.5191), "Dampierre 4": (47.7346, 2.5196),
     "Fessenheim 1": (47.9033, 7.5722), "Fessenheim 2": (47.9038, 7.5727),
+    "Flamanville 1": (49.5356, -1.8824), "Flamanville 2": (49.5361, -1.8819),
+    "Flamanville 3": (49.5370, -1.8790),
     "Golfech 1": (44.1064, 0.8448), "Golfech 2": (44.1069, 0.8453),
-    "Gravelines 1": (51.0148, 2.1364), "Gravelines 2": (51.0151, 2.1367), "Gravelines 3": (51.0154, 2.1370), "Gravelines 4": (51.0157, 2.1373), "Gravelines 5": (51.0160, 2.1376), "Gravelines 6": (51.0163, 2.1379),
+    "Gravelines 1": (51.0148, 2.1364), "Gravelines 2": (51.0151, 2.1367),
+    "Gravelines 3": (51.0154, 2.1370), "Gravelines 4": (51.0157, 2.1373),
+    "Gravelines 5": (51.0160, 2.1376), "Gravelines 6": (51.0163, 2.1379),
     "Nogent 1": (48.5148, 3.5173), "Nogent 2": (48.5153, 3.5178),
-    "Paluel 1": (49.8576, 0.6331), "Paluel 2": (49.8581, 0.6336), "Paluel 3": (49.8586, 0.6341), "Paluel 4": (49.8591, 0.6346),
+    "Paluel 1": (49.8576, 0.6331), "Paluel 2": (49.8581, 0.6336),
+    "Paluel 3": (49.8586, 0.6341), "Paluel 4": (49.8591, 0.6346),
     "Penly 1": (49.9753, 1.2117), "Penly 2": (49.9758, 1.2122),
     "Saint-Alban 1": (45.4034, 4.7553), "Saint-Alban 2": (45.4039, 4.7558),
-    "Saint-Laurent B1": (47.7195, 1.5770), "Saint-Laurent B2": (47.7200, 1.5775),
-    "Tricastin 1": (44.3287, 4.7312), "Tricastin 2": (44.3292, 4.7317), "Tricastin 3": (44.3297, 4.7322), "Tricastin 4": (44.3302, 4.7327)
+    "Saint-Laurent 1": (47.7195, 1.5770), "Saint-Laurent 2": (47.7200, 1.5775),
+    "Tricastin 1": (44.3287, 4.7312), "Tricastin 2": (44.3292, 4.7317),
+    "Tricastin 3": (44.3297, 4.7322), "Tricastin 4": (44.3302, 4.7327),
 }
+
 
 @st.cache_data(show_spinner=False)
 def _metadata_cached():
@@ -146,6 +160,22 @@ def _find_repo_data():
         except Exception:
             pass
 
+    # 0) Database Flock (Parquet): ha priorità se la libreria è importabile e
+    # data/ contiene sottocartelle-impianto con dentro dei .parquet.
+    # NB: reactors_metadata.csv vive in data/ e NON deve invalidare il check.
+    try:
+        import flock  # noqa: F401
+        if data_dir.exists():
+            subdirs = [p for p in data_dir.iterdir() if p.is_dir()]
+            has_parquet = any(d.glob("*.parquet") for d in subdirs)
+            if subdirs and has_parquet:
+                diag["flock"] = f"{len(subdirs)} cartelle-impianto con Parquet"
+                return "flock", data_dir, diag
+            diag["flock"] = (f"libreria ok, ma nessun Parquet in data/ "
+                             f"({len(subdirs)} sottocartelle)")
+    except ImportError as exc:
+        diag["flock"] = f"libreria non importabile ({exc})"
+
     # Cerca zip: data/ → root → ricorsivo ovunque
     candidates = []
     if data_dir.exists():
@@ -198,7 +228,7 @@ def sidebar_controls():
         st.markdown(
             "Questo strumento misura **quanto e quanto spesso** il nucleare francese "
             "modula la potenza (*load-following*), per singolo reattore e per l'intera flotta.\n\n"
-            "**Dati**: potenze orarie 2020–oggi da energygraph.info. La *capacità "
+            "**Dati**: potenze orarie 2015–oggi da energygraph.info. La *capacità "
             "disponibile* viene ricostruita dagli eventi di indisponibilità.\n\n"
             "**Cosa guardare**:\n"
             "- *Reattore singolo* → limiti di modulazione: rampa massima, profondità, "
@@ -234,20 +264,21 @@ def sidebar_controls():
                 )
         except Exception as exc:  # noqa: BLE001
             load_error = f"Errore leggendo {path.name}: {exc}"
-    elif kind == "folder":
+    elif kind in ("folder", "flock"):
+        label = "Carico dal database Flock…" if kind == "flock" else "Carico i CSV…"
         try:
-            with st.spinner("Carico i CSV…"):
+            with st.spinner(label):
                 prod, unavail, hourly, nominal, errors = _load_folder_cached(str(path))
         except Exception as exc:  # noqa: BLE001
-            load_error = f"Errore leggendo i CSV: {exc}"
+            load_error = f"Errore leggendo {'il db Flock' if kind=='flock' else 'i CSV'}: {exc}"
 
     n_react = len(hourly) if hourly else 0
 
     # Esiti possibili:
     if n_react > 0:
-        st.sidebar.success(
-            f"📦 `{path.name if kind=='zip' else path}` · **{n_react} reattori**"
-        )
+        icon = {"zip": "📦", "flock": "🗄️", "folder": "📁"}.get(kind, "📦")
+        src = path.name if kind == "zip" else path
+        st.sidebar.success(f"{icon} `{src}` · **{n_react} reattori**")
     elif kind is not None:
         # File trovato ma 0 reattori estratti → problema di nomi/contenuto
         st.sidebar.error(
@@ -273,6 +304,7 @@ def sidebar_controls():
             if diag["data_esiste"]:
                 st.write("**File in `data/`:**", diag["contenuto_data"] or "—")
             st.write("**ZIP trovati:**", diag["zip_trovati"] or "nessuno")
+            st.write("**Flock:**", diag.get("flock", "non verificato"))
             if kind == "zip" and diag["zip_trovati"]:
                 try:
                     import zipfile
@@ -324,26 +356,26 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
                             ["Reattore singolo", "Aggregata (flotta)"])
 
     if mode == "Reattore singolo":
-        # Inizializza lo stato se non presente
-        if "selected_reactor" not in st.session_state or st.session_state["selected_reactor"] not in reactors_sorted:
+        # session_state tiene la scelta sincronizzata con il clic sulla mappa
+        if ("selected_reactor" not in st.session_state
+                or st.session_state["selected_reactor"] not in reactors_sorted):
             st.session_state["selected_reactor"] = reactors_sorted[0]
-
-        chosen_idx = reactors_sorted.index(st.session_state["selected_reactor"])
-        chosen = st.sidebar.selectbox(
-            "Reattore",
-            reactors_sorted,
-            index=chosen_idx,
-            format_func=label,
-        )
+        idx = reactors_sorted.index(st.session_state["selected_reactor"])
+        chosen = st.sidebar.selectbox("Reattore", reactors_sorted,
+                                      index=idx, format_func=label)
         st.session_state["selected_reactor"] = chosen
         selected = [chosen]
         st.sidebar.caption("Ordinati per anno di accensione (vecchi → nuovi)")
     else:
         # Flotta INTERA di default; filtro rapido per palier
-        paliers = sorted({info[r]["palier"] for r in reactors if info.get(r, {}).get("matched")})
-        pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)", paliers, default=[])
-        pool = [r for r in reactors_sorted if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
-        selected = st.sidebar.multiselect("Reattori", reactors_sorted, default=pool, format_func=label)
+        paliers = sorted({info[r]["palier"] for r in reactors
+                          if info.get(r, {}).get("matched")})
+        pick_pal = st.sidebar.multiselect("Filtra per palier (vuoto = tutti)",
+                                          paliers, default=[])
+        pool = [r for r in reactors_sorted
+                if not pick_pal or info.get(r, {}).get("palier") in pick_pal]
+        selected = st.sidebar.multiselect("Reattori", reactors_sorted,
+                                          default=pool, format_func=label)
         st.sidebar.caption(f"{len(selected)} reattori selezionati (default: tutti)")
 
     # Range temporale globale
@@ -351,10 +383,8 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
     for r in (selected or reactors):
         if r in hourly:
             all_idx = all_idx.union(hourly[r].index)
-            
     if len(all_idx) == 0:
         return mode, selected, None, None, reactors_sorted
-        
     min_d, max_d = all_idx.min().date(), all_idx.max().date()
 
     st.sidebar.markdown("**Periodo**")
@@ -385,82 +415,74 @@ def period_and_reactor_controls(hourly: dict, nominal: dict):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PASSO 2: INCOLLA QUI LA NUOVA FUNZIONE MAPPA
+# Vista: Reattore singolo
 # ─────────────────────────────────────────────────────────────────────────────
 
 def render_main_map(reactors_sorted, chosen):
+    """
+    Mappa interattiva del parco: clic su un pallino → seleziona il reattore.
+
+    NOTA: `px.scatter_mapbox` è stato RIMOSSO in Plotly 6 (Streamlit Cloud usa
+    la 6.x) → AttributeError. Qui si usa `px.scatter_map` (MapLibre, Plotly
+    ≥5.24) con fallback automatico a `scatter_mapbox` sulle versioni vecchie.
+    """
     import plotly.express as px
-    import pandas as pd
-    import streamlit as st
 
     map_rows = []
     for r in reactors_sorted:
         coords = REACTOR_COORDS.get(r)
         if coords:
             map_rows.append({
-                "Reattore": r,
-                "lat": coords[0],
-                "lon": coords[1],
-                "Stato": "Selezionato" if r == chosen else "Altri reattori"
+                "Reattore": r, "lat": coords[0], "lon": coords[1],
+                "Stato": "Selezionato" if r == chosen else "Altri reattori",
             })
-
     if not map_rows:
         return
 
     df_map = pd.DataFrame(map_rows)
-    
-    # La magia è qui: custom_data=["Reattore"] incapsula il nome esatto dentro ogni punto
-    fig_map = px.scatter_mapbox(
-        df_map,
-        lat="lat",
-        lon="lon",
-        hover_name="Reattore",
-        custom_data=["Reattore"],  
-        color="Stato",
+    common = dict(
+        lat="lat", lon="lon", hover_name="Reattore",
+        custom_data=["Reattore"], color="Stato",
         color_discrete_map={"Selezionato": "#EF4444", "Altri reattori": "#3B82F6"},
-        zoom=5.3,
-        center={"lat": 46.6033, "lon": 2.2},
-        mapbox_style="open-street-map",
-        height=700
+        zoom=4.6, center={"lat": 46.6033, "lon": 2.2}, height=600,
     )
-    
-    fig_map.update_traces(marker=dict(size=14, opacity=0.95))
-    
-    # Legenda cazzuta: sfondo bianco pieno, testo nero, bordo nero
+
+    if hasattr(px, "scatter_map"):          # Plotly ≥ 5.24 (incl. 6.x)
+        fig_map = px.scatter_map(df_map, map_style="open-street-map", **common)
+    else:                                   # Plotly < 5.24
+        fig_map = px.scatter_mapbox(df_map, mapbox_style="open-street-map", **common)
+
+    fig_map.update_traces(marker=dict(size=13, opacity=0.95))
     fig_map.update_layout(
         margin={"r": 0, "t": 10, "l": 0, "b": 10},
-        legend=dict(
-            title=None,
-            yanchor="top", y=0.97, xanchor="left", x=0.01, 
-            bgcolor="white", 
-            bordercolor="black", 
-            borderwidth=2,
-            font=dict(color="black", size=14)
-        ),
-        clickmode="event+select"
+        legend=dict(title=None, yanchor="top", y=0.97, xanchor="left", x=0.01,
+                    bgcolor="white", bordercolor="black", borderwidth=2,
+                    font=dict(color="black", size=13)),
+        clickmode="event+select",
     )
 
-    with st.expander("🗺️ **Mappa interattiva del parco nucleare** (clicca un pallino per selezionare)", expanded=True):
+    with st.expander("🗺️ **Mappa interattiva del parco** (clicca un pallino per selezionare)",
+                     expanded=False):
         event = st.plotly_chart(
-            fig_map, 
-            use_container_width=True, 
-            on_select="rerun", 
-            key="main_map_click_event",
-            config={"scrollZoom": True} 
+            fig_map, use_container_width=True, on_select="rerun",
+            key="main_map_click_event", config={"scrollZoom": True},
         )
-        
-    if event and "selection" in event and event["selection"]["points"]:
-            clicked_r = event["selection"]["points"][0]["customdata"][0]
-            
-            if clicked_r != st.session_state.get("selected_reactor"):
-                st.session_state["selected_reactor"] = clicked_r
-                st.rerun()  # Solo questo, senza la riga "reactor_select_box_key"
+
+    # Il clic arriva come evento di selezione: aggiorna lo stato e ricarica
+    try:
+        points = event["selection"]["points"] if event else []
+    except (KeyError, TypeError):
+        points = []
+    if points:
+        clicked = points[0].get("customdata", [None])[0]
+        if clicked and clicked != st.session_state.get("selected_reactor"):
+            st.session_state["selected_reactor"] = clicked
+            st.rerun()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Vista: Reattore singolo (questo c'era già)
+# Vista: Reattore singolo
 # ─────────────────────────────────────────────────────────────────────────────
-def render_single(reactor, hourly, unavail_data, date_from, date_to):
-    ...
 
 def render_single(reactor, hourly, unavail_data, date_from, date_to):
     h_full = hourly[reactor]
@@ -893,7 +915,7 @@ def main():
         return
 
     if mode == "Reattore singolo":
-        render_main_map(reactors_sorted, selected[0])  # <--- È QUESTA LA RIGA MAGICA CHE MANCA!
+        render_main_map(reactors_sorted, selected[0])
         render_single(selected[0], hourly, unavail, date_from, date_to)
     else:
         render_fleet(selected, hourly, nominal, date_from, date_to)

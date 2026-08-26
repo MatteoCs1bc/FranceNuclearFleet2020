@@ -1,0 +1,28 @@
+# --- DATI ---
+# data/ è versionata apposta: può contenere il database Flock
+# (data/<Impianto>/*.parquet) oppure lo ZIP/CSV dei dati grezzi.
+# I Parquet sono compatti; se superassero i 100 MB (limite GitHub) o fossero
+# privati, decommenta le righe sotto e usa l'upload manuale dall'app.
+# *.zip
+# data/*.zip
+# data/**/*.parquet
+# L'anagrafica va comunque sempre versionata:
+!data/reactors_metadata.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

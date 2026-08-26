@@ -207,3 +207,49 @@ update,id,version,start,end,type,status,value,reason
 
 Il nome reattore è estratto dal suffisso del filename (`..._Belleville_1.csv` →
 `Belleville 1`) — è così che le due tipologie di file vengono accoppiate.
+
+---
+
+## 🗄️ Backend dati: CSV/ZIP oppure database Flock
+
+L'app cerca i dati in quest'ordine e usa il **primo** che trova:
+
+1. **Database Flock** (`data/` con una sottocartella per impianto) — usato solo se
+   la libreria `flock` è importabile;
+2. **ZIP** di CSV in `data/`, nella root, o ovunque nel repo;
+3. **CSV** sciolti.
+
+Il database Flock ha due chiavi — *impianto* × *tipo di tabella*
+(`availability` / `unavailabilities`) — e viene letto così:
+
+```python
+db = Flock("data")
+db.availability.plants("Belleville 1").to_pandas()
+db.unavailabilities.plants("Belleville 1").to_pandas()
+```
+
+Il vantaggio principale non è tanto il *column pruning* (le tabelle hanno poche
+colonne) quanto **evitare il parsing dei CSV a ogni cold start**: i tipi sono già
+numerici, quindi niente conversione di stringhe come `"1.31 GW"`.
+
+La libreria Flock è **vendorizzata** nel repo (cartella `flock/`), con due patch
+rispetto all'originale, necessarie per farla funzionare come package:
+`from converter import ...` → import **relativo**, e reso **opzionale** (il
+converter richiede `alive_progress`, che non è tra le dipendenze e serve solo a
+`build_database()`).
+
+> **Non aggiungere `flock` a `requirements.txt`**: su PyPI esiste un pacchetto
+> omonimo che è una libreria di *file locking*, diversa da questa. In
+> `requirements.txt` ci sono solo le sue dipendenze (`duckdb`, `pyarrow`).
+> Se Flock non è caricabile, l'app **ricade automaticamente su ZIP/CSV**.
+
+### Nomi dei file CSV supportati
+
+```
+<Reattore> - Availability.csv          # es. "Belleville 1 - Availability.csv"
+<Reattore> - Unavailabilities.csv      # tollera "-Unavailabilities" senza spazio
+```
+Sono supportati anche i vecchi nomi `Availability vs production (...)_<Reattore>.csv`.
+I nomi vengono canonicalizzati: `Dampierre En Burly 3` → `Dampierre 3`,
+`Nogent Sur Seine 1` → `Nogent 1`, `St Alban St Maurice 2` → `Saint-Alban 2`,
+`CHOOZ B 1` → `Chooz 1`.

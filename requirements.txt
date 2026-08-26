@@ -1,9 +1,13 @@
 streamlit>=1.35.0
 pandas>=2.0.0
 numpy>=1.24.0
-plotly>=5.18.0
-# Rete di sicurezza: se sul server resta del codice vecchio con
-# .style.background_gradient(), pandas richiede matplotlib. Il codice nuovo
-# usa una colorazione in puro Python e non ne ha bisogno, ma tenerlo qui
-# evita crash da disallineamenti di file durante gli upload.
+plotly>=5.24.0
+# Rete di sicurezza per eventuale codice legacy con .style.background_gradient()
 matplotlib>=3.7.0
+
+# --- Backend dati Flock (database Parquet) ---
+# La libreria Flock è VENDORIZZATA nel repo (cartella flock/): NON aggiungere
+# "flock" da PyPI, quel pacchetto è una libreria di file-locking, diversa.
+# Queste sono le sue dipendenze:
+duckdb>=1.0.0
+pyarrow>=15.0.0
