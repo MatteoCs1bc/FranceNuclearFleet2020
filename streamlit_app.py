@@ -29,6 +29,7 @@ from src.metrics import (
 from src.metadata import load_metadata, match, build_lookup, enrich_reactor_list, PALIER_DESCR
 from src import charts
 from src import loadfollowing as lf
+from src import environment as env
 
 # Coordinate dei siti (chiavi = nomi CANONICI prodotti da canonicalize_reactor_name:
 # 'Chinon 1' non 'Chinon B1', 'Saint-Laurent 1' non 'Saint-Laurent B1', ecc.)
@@ -643,6 +644,22 @@ def render_single(reactor, hourly, unavail_data, date_from, date_to):
             c2.metric("Guasti", len(forced))
             c3.metric("Durata media", f"{events['duration_h'].mean():.0f} h")
 
+            # Nota sui vincoli ambientali (siccità/caldo) per questo reattore
+            env_ev = events[env.is_environmental(events["reason"])] if "reason" in events.columns else events.iloc[0:0]
+            cool, water = env.cooling_of(reactor)
+            if not env_ev.empty:
+                summer = env_ev["start"].dt.month.isin([6, 7, 8, 9]).mean() * 100
+                st.warning(
+                    f"🌡️ **{len(env_ev)} eventi per cause ambientali** "
+                    f"(raffreddamento: {cool} — {water}) · "
+                    f"{summer:.0f}% tra giugno e settembre. "
+                    "Sono i vincoli da temperatura/portata del corpo idrico: "
+                    "caldo e siccità. Dettaglio di flotta nel tab *Siccità* della vista aggregata."
+                )
+            elif cool == "mare":
+                st.caption(f"🌊 Raffreddamento: {cool} ({water}) — nessun vincolo "
+                           "ambientale registrato: gli impianti costieri sono immuni a siccità e magre.")
+
             st.markdown("#### Capacità disponibile nel tempo")
             st.caption("Gli outage si vedono come crolli dell'area verde. "
                        "La linea blu è la produzione effettiva.")
@@ -664,7 +681,7 @@ def render_single(reactor, hourly, unavail_data, date_from, date_to):
 # Vista: Aggregata (flotta)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render_fleet(selected, hourly, nominal, date_from, date_to):
+def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None):
     if not selected:
         st.warning("Seleziona almeno un reattore.")
         return
@@ -700,7 +717,8 @@ def render_fleet(selected, hourly, nominal, date_from, date_to):
 
     st.divider()
     tabs = st.tabs(["🔁 Modulazione flotta", "📐 Capacità di modulazione",
-                    "🏭 Confronto per palier", "📊 Reattori & anagrafica"])
+                    "🏭 Confronto per palier", "🌡️ Siccità & vincoli ambientali",
+                    "📊 Reattori & anagrafica"])
 
     # Calcolo per-reattore UNA volta sola (condiviso da palier e tabella)
     as_of = pd.Timestamp(date_to).year
@@ -853,8 +871,63 @@ def render_fleet(selected, hourly, nominal, date_from, date_to):
             st.caption("Palier ordinati per generazione: CP0→CP1→CP2 (900 MW), "
                        "P4→P'4 (1300 MW), N4 (1450 MW), EPR (1600 MW).")
 
-    # --- REATTORI & ANAGRAFICA ---
+    # --- SICCITÀ & VINCOLI AMBIENTALI ---
     with tabs[3]:
+        st.caption(
+            "Indisponibilità dovute a **cause ambientali**: temperatura e portata "
+            "dei fiumi, ondate di calore, siccità. I dati non hanno un'etichetta "
+            "esplicita \"siccità\": si usa la categoria *Environmental issues*, "
+            "che però mostra entrambe le firme attese (picco estivo e soli "
+            "reattori fluviali)."
+        )
+        ev_env = env.environmental_events(unavail_all, nominal, date_from, date_to)
+        ev_env = ev_env[ev_env["reactor"].isin(selected)] if not ev_env.empty else ev_env
+        if ev_env.empty:
+            st.info("Nessun evento ambientale per i reattori/periodo selezionati.")
+        else:
+            prod_TWh = kpi.get("energy_produced_TWh")
+            es = env.environmental_summary(ev_env, prod_TWh)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Energia persa", f"{es['lost_GWh']:.0f} GWh",
+                      help="(nominale − capacità disponibile) × durata dell'evento")
+            c2.metric("Quota su produzione",
+                      f"{es['pct_of_production']:.2f}%" if "pct_of_production" in es else "—")
+            c3.metric("Eventi in estate (giu–set)", f"{es['pct_summer']:.0f}%",
+                      help="La firma stagionale di caldo e siccità")
+            c4.metric("Su impianti fluviali", f"{es['pct_river']:.0f}%",
+                      help="I costieri (mare) sono praticamente immuni")
+
+            st.markdown("#### Stagionalità: la firma estiva")
+            fig = charts.env_seasonality(ev_env)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("#### Chi paga il conto: fiume vs mare")
+            st.caption("I siti raffreddati da fiumi soffrono i limiti di temperatura "
+                       "allo scarico e le magre; quelli sul mare no.")
+            fig = charts.env_by_cooling(ev_env)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.info(
+                f"**In sintesi** — {es['n_events']} eventi ambientali su "
+                f"{es['n_reactors']} reattori, **{es['lost_GWh']:.0f} GWh** persi"
+                + (f" (**{es['pct_of_production']:.2f}%** della produzione del periodo)"
+                   if "pct_of_production" in es else "")
+                + f". Anno peggiore: **{es['worst_year']}** ({es['worst_year_GWh']:.0f} GWh). "
+                f"Il {es['pct_summer']:.0f}% degli eventi cade tra giugno e settembre e il "
+                f"{es['pct_river']:.0f}% riguarda impianti fluviali o d'estuario: è il "
+                "profilo tipico dei vincoli da caldo e magra dei fiumi, non di guasti casuali."
+            )
+            with st.expander("Dettaglio eventi ambientali"):
+                show = ev_env[["reactor", "water", "start", "end", "duration_h", "lost_GWh"]].copy()
+                show.columns = ["Reattore", "Corpo idrico", "Inizio", "Fine", "Ore", "GWh persi"]
+                show["Ore"] = show["Ore"].round(0); show["GWh persi"] = show["GWh persi"].round(1)
+                st.dataframe(show.sort_values("Inizio", ascending=False),
+                             use_container_width=True, height=300, hide_index=True)
+
+    # --- REATTORI & ANAGRAFICA ---
+    with tabs[4]:
         st.markdown("#### Anagrafica: età e vita operativa (colore = palier)")
         fig = charts.fleet_timeline(enriched, as_of=as_of)
         if fig:
@@ -918,7 +991,7 @@ def main():
         render_main_map(reactors_sorted, selected[0])
         render_single(selected[0], hourly, unavail, date_from, date_to)
     else:
-        render_fleet(selected, hourly, nominal, date_from, date_to)
+        render_fleet(selected, hourly, nominal, date_from, date_to, unavail)
 
 
 if __name__ == "__main__":
