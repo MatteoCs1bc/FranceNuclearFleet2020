@@ -242,6 +242,114 @@ def simultaneous_modulating(hourly_by_reactor: dict, reactors: list,
     return simul if simul is not None else pd.Series(dtype="int16")
 
 
+def deep_modulations(hourly: pd.DataFrame, threshold_pct: float = 40.0) -> pd.DataFrame:
+    """
+    Conta per giorno le modulazioni profonde (ramp-down oltre threshold_pct del
+    nominale) mentre il reattore è online. Restituisce un DataFrame per giorno
+    con il numero di discese profonde: mostra il "tetto" fisico giornaliero.
+    """
+    ev = ramp_events(hourly)
+    if ev.empty:
+        return pd.DataFrame(columns=["day", "n_deep_down"])
+    ev = ev[ev["online"]]
+    deep = ev[(ev["direction"] == "down") & (ev["delta_pct"] < -threshold_pct)].copy()
+    if deep.empty:
+        return pd.DataFrame(columns=["day", "n_deep_down"])
+    deep["day"] = deep["start"].dt.normalize()
+    g = deep.groupby("day").size().rename("n_deep_down").reset_index()
+    return g
+
+
+def xenon_recovery(hourly: pd.DataFrame, threshold_pct: float = 40.0,
+                   max_gap_h: float = 48) -> pd.Series:
+    """
+    Tempo (ore) tra la fine di un ramp-down profondo (> threshold_pct) e l'inizio
+    della successiva risalita di potenza. È la firma del transitorio da xeno-135:
+    dopo una discesa profonda, lo xeno accumulato ritarda la ripresa (picco a
+    ~6-9 h, decadimento in 1-2 giorni).
+    """
+    ev = ramp_events(hourly)
+    if ev.empty:
+        return pd.Series(dtype=float)
+    ev = ev[ev["online"]].sort_values("start").reset_index(drop=True)
+    gaps = []
+    dirn = ev["direction"].values
+    dpct = ev["delta_pct"].values
+    starts = ev["start"].values
+    ends = ev["end"].values
+    for i in range(len(ev) - 1):
+        if dirn[i] == "down" and dpct[i] < -threshold_pct:
+            for j in range(i + 1, len(ev)):
+                if dirn[j] == "up":
+                    gap = (starts[j] - ends[i]) / np.timedelta64(1, "h")
+                    if 0 <= gap < max_gap_h:
+                        gaps.append(float(gap))
+                    break
+    return pd.Series(gaps, dtype=float)
+
+
+def fleet_modulation_capacity(hourly_by_reactor: dict, reactors: list,
+                              date_from, date_to, min_coverage: float = 0.95) -> dict:
+    """
+    Capacità di modulazione della flotta su tre scale temporali, filtrando le
+    ore con copertura dati insufficiente (per evitare artefatti quando molti
+    reattori hanno dati mancanti):
+
+      peak_swing_GW      — escursione intra-giornaliera MASSIMA (una tantum)
+      peak_swing_p99_GW  — 99° percentile (picco robusto)
+      sustained_GW       — escursione giornaliera MEDIANA (sostenibile ogni giorno)
+      sustained_iqr_GW   — range abituale 25–75° percentile
+      week_best_GW       — settimana più intensa (media giornaliera)
+      seasonal_GW        — escursione tra mese più alto e più basso (modul. lenta)
+      installed_GW, ramp_down_GW_h, ramp_up_GW_h, hours_valid, coverage_pct
+    """
+    from src.metrics import slice_period
+    frames = []
+    for r in reactors:
+        if r not in hourly_by_reactor:
+            continue
+        h = slice_period(hourly_by_reactor[r], date_from, date_to)
+        if h.empty:
+            continue
+        frames.append(h["production_MW_pos"].rename(r))
+    if not frames:
+        return {}
+    mat = pd.concat(frames, axis=1, sort=True)
+    n = len(frames)
+    coverage = mat.notna().sum(axis=1)
+    good = coverage >= min_coverage * n
+    p = (mat.sum(axis=1) / 1000)[good]        # GW, solo ore ben coperte
+    if p.empty:
+        return {}
+
+    installed = sum(float(hourly_by_reactor[r]["nominal_MW"].iloc[0])
+                    for r in reactors if r in hourly_by_reactor) / 1000
+
+    daily_max = p.resample("D").max()
+    daily_min = p.resample("D").min()
+    swing = (daily_max - daily_min).dropna()
+    ramp = p.diff().dropna()
+    monthly = p.resample("ME").mean()
+    weekly_swing = swing.resample("W").mean()
+
+    return {
+        "installed_GW": installed,
+        "hours_valid": int(good.sum()),
+        "coverage_pct": float(good.mean() * 100),
+        "peak_swing_GW": float(swing.max()) if len(swing) else 0,
+        "peak_swing_p99_GW": float(swing.quantile(0.99)) if len(swing) else 0,
+        "sustained_GW": float(swing.median()) if len(swing) else 0,
+        "sustained_q25_GW": float(swing.quantile(0.25)) if len(swing) else 0,
+        "sustained_q75_GW": float(swing.quantile(0.75)) if len(swing) else 0,
+        "week_best_GW": float(weekly_swing.max()) if len(weekly_swing) else 0,
+        "seasonal_GW": float(monthly.max() - monthly.min()) if len(monthly) else 0,
+        "ramp_down_GW_h": float(ramp.min()) if len(ramp) else 0,
+        "ramp_up_GW_h": float(ramp.max()) if len(ramp) else 0,
+        "prod_min_GW": float(p.min()), "prod_max_GW": float(p.max()),
+        "swing_series": swing,
+    }
+
+
 def lf_summary(hourly: pd.DataFrame) -> dict:
     """KPI sintetici di load-following per un reattore/flotta nel periodo."""
     if hourly.empty:
