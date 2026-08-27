@@ -304,3 +304,38 @@ mezzogiorno, quando il fotovoltaico copre la domanda.
 È la prova, ora per ora, che nucleare e rinnovabili **non sono alternativi**: la
 convivenza è già in atto. *Quanto* possa spingersi lo dice il tab
 **Capacità di modulazione** (~3,6 GW sostenibili al giorno contro un picco di ~18).
+
+---
+
+## 🔌 Quanto fotovoltaico regge il sistema
+
+Tab che incrocia la modulazione oraria del nucleare con i dati solari francesi
+(`data/solar_france.csv`, fonte RTE): capacità installata, quota di domanda
+coperta, e **curtailment durante i prezzi negativi**.
+
+| Anno | PV GW | Quota max | Tagliato | Calo nucleare a mezzogiorno |
+|------|-------|-----------|----------|------------------------------|
+| 2020 | 10,4 | 17,5% | 0,4% | −0,4 GW |
+| 2022 | 16,1 | 27,5% | **0%** | −0,2 GW |
+| 2023 | 19,5 | 30,4% | 1,5% | +0,8 GW |
+| 2024 | 24,5 | 39,3% | 5,1% | +2,9 GW |
+| 2025 | 30,4 | 47,3% | 8,8% | **+4,5 GW** |
+| 2026* | 33,3 | 52,1% | 10,0% | **+4,5 GW** |
+
+**Non esiste una "quota massima integrabile" universale**: il tetto non è fisico
+ma di sistema, e si sposta con la flessibilità disponibile (accumuli,
+interconnessioni, domanda spostabile).
+
+Quello che i dati mostrano è **quando il margine attuale si esaurisce**: il calo
+di mezzogiorno del nucleare ha raggiunto ~4,5 GW e ha smesso di crescere, mentre
+la curtailment è salita al ~9–10%. Succede intorno ai **30 GW di PV**. Il valore
+combacia con la modulazione sostenibile misurata indipendentemente (~3,6 GW/giorno):
+il parco sta modulando quanto può reggere.
+
+**Controprova, il 2022**: con metà parco fermo per la crisi corrosione e il PV già
+a 16 GW, la curtailment è stata **zero**. Il vincolo non è il solare in sé, ma la
+competizione per lo stesso spazio a mezzogiorno.
+
+*2026 parziale. Dati solari annuali vs nucleari orari: legame forte ma correlativo.
+La curtailment è misurata durante prezzi negativi, quindi riflette anche export,
+vento e domanda.

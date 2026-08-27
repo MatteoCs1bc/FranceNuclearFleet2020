@@ -30,6 +30,7 @@ from src.metadata import load_metadata, match, build_lookup, enrich_reactor_list
 from src import charts
 from src import loadfollowing as lf
 from src import environment as env
+from src import solar as sol
 
 # Coordinate dei siti (chiavi = nomi CANONICI prodotti da canonicalize_reactor_name:
 # 'Chinon 1' non 'Chinon B1', 'Saint-Laurent 1' non 'Saint-Laurent B1', ecc.)
@@ -735,8 +736,9 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
 
     st.divider()
     tabs = st.tabs(["🔁 Modulazione flotta", "☀️ Impronta del solare",
-                    "📐 Capacità di modulazione", "🏭 Confronto per palier",
-                    "🌡️ Siccità & vincoli ambientali", "📊 Reattori & anagrafica"])
+                    "🔌 Quanto PV regge il sistema", "📐 Capacità di modulazione",
+                    "🏭 Confronto per palier", "🌡️ Siccità & vincoli ambientali",
+                    "📊 Reattori & anagrafica"])
 
     # Calcolo per-reattore UNA volta sola (condiviso da palier e tabella)
     as_of = pd.Timestamp(date_to).year
@@ -879,8 +881,85 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
                     "prova a selezionare tutta la flotta e il periodo completo."
                 )
 
-    # --- CAPACITÀ DI MODULAZIONE (tre scale) ---
+    # --- QUANTO PV REGGE IL SISTEMA ---
     with tabs[2]:
+        st.caption(
+            "Il nucleare assorbe la spinta del fotovoltaico abbassandosi a mezzogiorno. "
+            "Ma quel margine ha un fondo: quando si esaurisce, il solare in eccesso "
+            "viene **tagliato**. Qui le due serie a confronto."
+        )
+        solar_df = sol.load_solar()
+        tab_int = sol.integration_table(hourly, selected, solar_df)
+        if tab_int.empty:
+            st.info("Dati solari non disponibili (`data/solar_france.csv`) "
+                    "oppure periodo insufficiente.")
+        else:
+            ss = sol.saturation_summary(tab_int)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("PV installato", f"{ss['last_pv_GW']:.0f} GW",
+                      help=f"Ultimo anno disponibile ({ss['last_year']})")
+            c2.metric("Quota max domanda", f"{ss['last_share_pct']:.0f}%",
+                      help="Picco istantaneo di domanda coperta dal solare")
+            c3.metric("Buffer nucleare usato", f"{ss['last_dip_GW']:.1f} GW",
+                      help="Di quanto il parco cala a mezzogiorno (apr–set)")
+            c4.metric("Solare tagliato", f"{ss['last_curtail_pct']:.1f}%",
+                      help="Curtailment durante prezzi negativi, % della generazione PV")
+
+            st.markdown("#### Il buffer si è saturato")
+            st.caption(
+                "Barre blu: quanto il nucleare si abbassa a mezzogiorno (il margine che "
+                "mette a disposizione). Linea rossa: quanto solare viene buttato via. "
+                "Quando le barre smettono di crescere e la linea decolla, il sistema "
+                "ha esaurito la flessibilità disponibile."
+            )
+            fig = charts.pv_saturation_chart(tab_int)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("#### La crescita del fotovoltaico")
+            fig = charts.pv_growth_chart(tab_int)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+            ctrl = ss.get("control_year")
+            st.info(
+                f"**Si può dire qual è la quota massima di PV integrabile? No — e i dati "
+                f"spiegano perché.** Il tetto non è fisico ma di sistema: dipende da quanta "
+                f"flessibilità hai (accumuli, interconnessioni, domanda spostabile, "
+                f"modulazione del parco). Con più batterie quel numero sale.\n\n"
+                f"Quello che i dati mostrano è **quando il margine attuale si esaurisce**: "
+                f"il calo di mezzogiorno del nucleare ha raggiunto **{ss['peak_dip_GW']:.1f} GW** "
+                f"e ha smesso di crescere, mentre la curtailment è arrivata al "
+                f"**{ss['last_curtail_pct']:.1f}%**. Succede intorno ai "
+                f"**{ss['last_pv_GW']:.0f} GW di PV** (~{ss['last_share_pct']:.0f}% di picco "
+                f"sulla domanda). Da lì in poi ogni GW aggiuntivo rende sempre meno, "
+                f"se non si aggiunge flessibilità."
+                + (f"\n\n**Controprova — {ctrl}**: con il parco nucleare in gran parte fermo "
+                   f"(crisi corrosione) e il PV già a "
+                   f"{tab_int.loc[tab_int['year']==ctrl,'pv_GW'].iloc[0]:.0f} GW, la "
+                   f"curtailment è stata **zero**. Il vincolo non è il solare in sé, ma la "
+                   f"competizione per lo stesso spazio a mezzogiorno." if ctrl else "")
+            )
+
+            with st.expander("Tabella e note metodologiche"):
+                show = tab_int[["year", "pv_GW", "pv_TWh", "max_share_pct",
+                                "curtail_GWh", "curtail_pct", "dip_GW"]].copy()
+                show.columns = ["Anno", "PV GW", "PV TWh", "Quota max %",
+                                "Tagliato GWh", "Tagliato %", "Calo nucleare GW"]
+                for c in show.columns[1:]:
+                    show[c] = show[c].round(1)
+                st.dataframe(show, use_container_width=True, hide_index=True)
+                st.caption(
+                    "⚠️ I dati solari sono **annuali** (fonte RTE), quelli nucleari orari: "
+                    "il legame è forte ma correlativo, non un bilancio ora-per-ora. "
+                    "La curtailment è misurata durante i **prezzi negativi**, quindi è un "
+                    "segnale di mercato influenzato anche da export, vento e domanda. "
+                    "L'ultimo anno può essere parziale. Il calo del nucleare è calcolato "
+                    "sui mesi aprile–settembre (alto irraggiamento)."
+                )
+
+    # --- CAPACITÀ DI MODULAZIONE (tre scale) ---
+    with tabs[3]:
         st.caption(
             "La domanda chiave: **quanto può modulare il parco?** Ma \"quanto\" ha tre "
             "risposte diverse a seconda della scala temporale. Ore con dati mancanti "
@@ -930,7 +1009,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
             )
 
     # --- CONFRONTO PER PALIER (blocco) ---
-    with tabs[3]:
+    with tabs[4]:
         st.caption("Ragionamento per **blocco di palier**: ogni generazione di progetto "
                    "confrontata come gruppo. I numeri sopra ogni barra sono le medie di gruppo.")
         # aggrega per palier dai calcoli già fatti
@@ -980,7 +1059,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
                        "P4→P'4 (1300 MW), N4 (1450 MW), EPR (1600 MW).")
 
     # --- SICCITÀ & VINCOLI AMBIENTALI ---
-    with tabs[4]:
+    with tabs[5]:
         st.caption(
             "Indisponibilità dovute a **cause ambientali**: temperatura e portata "
             "dei fiumi, ondate di calore, siccità. I dati non hanno un'etichetta "
@@ -1035,7 +1114,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
                              use_container_width=True, height=300, hide_index=True)
 
     # --- REATTORI & ANAGRAFICA ---
-    with tabs[5]:
+    with tabs[6]:
         st.markdown("#### Anagrafica: età e vita operativa (colore = palier)")
         fig = charts.fleet_timeline(enriched, as_of=as_of)
         if fig:
