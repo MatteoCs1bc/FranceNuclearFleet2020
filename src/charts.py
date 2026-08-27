@@ -699,6 +699,61 @@ def deep_modulations_fleet_hist(dist: pd.Series) -> go.Figure | None:
     return fig
 
 
+def diurnal_years_overlay(diurnal_df: pd.DataFrame,
+                          highlight: tuple[int, int] | None = None) -> go.Figure | None:
+    """
+    Firme giornaliere di più anni sovrapposte: si vede il minimo spostarsi
+    dalla notte al mezzogiorno con la crescita del fotovoltaico.
+    """
+    if diurnal_df is None or diurnal_df.empty:
+        return None
+    years = sorted(diurnal_df["year"].unique())
+    first, last = (highlight if highlight else (years[0], years[-1]))
+    fig = go.Figure()
+    # fascia oraria del picco solare
+    fig.add_vrect(x0=11, x1=16, fillcolor="rgba(245,158,11,0.10)", line_width=0,
+                  annotation_text="ore di sole", annotation_position="top left")
+    for y in years:
+        g = diurnal_df[diurnal_df["year"] == y].sort_values("hour")
+        is_edge = y in (first, last)
+        color = ("#DC2626" if y == last else "#2563EB") if is_edge else "rgba(148,163,184,0.55)"
+        fig.add_trace(go.Scatter(
+            x=g["hour"], y=g["pct"], name=str(y),
+            line=dict(color=color, width=3 if is_edge else 1.2),
+            hovertemplate=f"{y} · %{{x}}:00 → %{{y:.1f}}<extra></extra>",
+            showlegend=is_edge,
+        ))
+    fig.add_hline(y=100, line=dict(color="#94A3B8", width=1, dash="dot"))
+    fig.update_layout(
+        xaxis_title="Ora del giorno", yaxis_title="Produzione (100 = media annua)",
+        xaxis=dict(tickmode="linear", dtick=2),
+        height=380, margin=dict(t=30, b=30),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    )
+    return fig
+
+
+def solar_imprint_bars(imprint: pd.DataFrame) -> go.Figure | None:
+    """
+    Divario mezzogiorno − notte anno per anno. Sopra lo zero = regime
+    pre-solare; sotto = il nucleare si fa da parte a mezzogiorno.
+    """
+    if imprint is None or imprint.empty:
+        return None
+    colors = ["#2563EB" if v >= 0 else "#DC2626" for v in imprint["gap"]]
+    fig = go.Figure(go.Bar(
+        x=imprint["year"].astype(str), y=imprint["gap"], marker_color=colors,
+        text=[f"{v:+.1f}" for v in imprint["gap"]], textposition="outside",
+        hovertemplate="%{x}: %{y:+.1f} punti<extra></extra>",
+    ))
+    fig.add_hline(y=0, line=dict(color="#475569", width=1.5))
+    fig.update_layout(
+        yaxis_title="Mezzogiorno − notte (punti)",
+        xaxis_title=None, height=330, margin=dict(t=30, b=30), showlegend=False,
+    )
+    return fig
+
+
 def lf_ramp_envelope(hourly: pd.DataFrame) -> go.Figure:
     """
     Inviluppo degli eventi-rampa online: ogni punto è una manovra

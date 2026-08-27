@@ -417,6 +417,65 @@ def recovery_breakdown(recovery: pd.Series) -> dict:
     }
 
 
+def diurnal_by_year(hourly_by_reactor: dict, reactors: list,
+                    years: list[int] | None = None) -> pd.DataFrame:
+    """
+    Firma giornaliera della FLOTTA anno per anno, normalizzata sulla media
+    giornaliera (100 = produzione media di quell'anno).
+
+    È la traccia del "coupling" col fotovoltaico: fino al ~2018 il nucleare
+    francese produceva DI PIÙ a mezzogiorno che di notte; con la crescita del
+    solare la curva si è ribaltata e il minimo si è spostato a mezzogiorno.
+
+    Ritorna un DataFrame con colonne: year, hour, pct (in % della media annua).
+    """
+    from src.metrics import aggregate_fleet
+    rows = []
+    if years is None:
+        idx = None
+        for r in reactors:
+            if r in hourly_by_reactor:
+                i = hourly_by_reactor[r].index
+                idx = i if idx is None else idx.union(i)
+        if idx is None or len(idx) == 0:
+            return pd.DataFrame(columns=["year", "hour", "pct"])
+        years = sorted({int(y) for y in idx.year})
+
+    for y in years:
+        fleet = aggregate_fleet(hourly_by_reactor, reactors,
+                                f"{y}-01-01", f"{y}-12-31")
+        if fleet.empty or len(fleet) < 24 * 30:
+            continue
+        p = fleet["production_MW_pos"]
+        if p.mean() <= 0:
+            continue
+        norm = p / p.mean() * 100
+        g = norm.groupby(norm.index.hour).mean()
+        for hour, val in g.items():
+            rows.append({"year": y, "hour": int(hour), "pct": float(val)})
+    return pd.DataFrame(rows)
+
+
+def solar_imprint(diurnal_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sintetizza l'impronta del solare: per ogni anno il divario
+    mezzogiorno (12–15) − notte (2–5), in punti percentuali.
+    Valore positivo = si produce più a mezzogiorno (regime pre-solare);
+    negativo = si produce meno a mezzogiorno (il nucleare si sposta per il FV).
+    """
+    if diurnal_df is None or diurnal_df.empty:
+        return pd.DataFrame(columns=["year", "night", "noon", "evening", "gap"])
+    out = []
+    for y, g in diurnal_df.groupby("year"):
+        s = g.set_index("hour")["pct"]
+        night = s.loc[2:5].mean()
+        noon = s.loc[12:15].mean()
+        evening = s.loc[19:21].mean()
+        out.append({"year": int(y), "night": night, "noon": noon,
+                    "evening": evening, "gap": noon - night})
+    return pd.DataFrame(out).sort_values("year")
+
+
 def lf_summary(hourly: pd.DataFrame) -> dict:
     """KPI sintetici di load-following per un reattore/flotta nel periodo."""
     if hourly.empty:
