@@ -754,6 +754,55 @@ def solar_imprint_bars(imprint: pd.DataFrame) -> go.Figure | None:
     return fig
 
 
+def pv_saturation_chart(table: pd.DataFrame) -> go.Figure | None:
+    """
+    Il grafico chiave: barre = avvallamento di mezzogiorno del nucleare (il
+    "buffer" in GW), linea = curtailment del PV in % della generazione.
+    Quando le barre smettono di crescere e la linea decolla, il buffer è saturo.
+    """
+    if table is None or table.empty:
+        return None
+    t = table.sort_values("year")
+    x = t["year"].astype(str)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Bar(
+        x=x, y=t["dip_GW"], name="Nucleare: calo a mezzogiorno (GW)",
+        marker_color=["#94A3B8" if v < 0.5 else "#2563EB" for v in t["dip_GW"]],
+        text=[f"{v:.1f}" for v in t["dip_GW"]], textposition="outside",
+        hovertemplate="%{x}: %{y:.2f} GW di calo<extra></extra>",
+    ), secondary_y=False)
+    fig.add_trace(go.Scatter(
+        x=x, y=t["curtail_pct"], name="Solare tagliato (% della generazione)",
+        line=dict(color="#DC2626", width=3), mode="lines+markers",
+        hovertemplate="%{x}: %{y:.1f}% tagliato<extra></extra>",
+    ), secondary_y=True)
+    fig.update_yaxes(title_text="Calo di mezzogiorno del nucleare (GW)", secondary_y=False)
+    fig.update_yaxes(title_text="Curtailment solare (%)", secondary_y=True)
+    fig.update_layout(height=400, margin=dict(t=30, b=30),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+    return fig
+
+
+def pv_growth_chart(table: pd.DataFrame) -> go.Figure | None:
+    """Crescita del PV: capacità installata e quota massima della domanda."""
+    if table is None or table.empty:
+        return None
+    t = table.sort_values("year")
+    x = t["year"].astype(str)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Bar(x=x, y=t["pv_GW"], name="PV installato (GW)",
+                         marker_color="#F59E0B"), secondary_y=False)
+    fig.add_trace(go.Scatter(x=x, y=t["max_share_pct"],
+                             name="Quota max della domanda (%)",
+                             line=dict(color="#0891B2", width=3),
+                             mode="lines+markers"), secondary_y=True)
+    fig.update_yaxes(title_text="Capacità installata (GW)", secondary_y=False)
+    fig.update_yaxes(title_text="Quota max domanda (%)", secondary_y=True)
+    fig.update_layout(height=330, margin=dict(t=30, b=30),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+    return fig
+
+
 def lf_ramp_envelope(hourly: pd.DataFrame) -> go.Figure:
     """
     Inviluppo degli eventi-rampa online: ogni punto è una manovra
