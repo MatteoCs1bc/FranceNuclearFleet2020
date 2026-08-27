@@ -734,9 +734,9 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
     c5.metric("Energia", f"{kpi['energy_produced_TWh']:.1f} TWh")
 
     st.divider()
-    tabs = st.tabs(["🔁 Modulazione flotta", "📐 Capacità di modulazione",
-                    "🏭 Confronto per palier", "🌡️ Siccità & vincoli ambientali",
-                    "📊 Reattori & anagrafica"])
+    tabs = st.tabs(["🔁 Modulazione flotta", "☀️ Impronta del solare",
+                    "📐 Capacità di modulazione", "🏭 Confronto per palier",
+                    "🌡️ Siccità & vincoli ambientali", "📊 Reattori & anagrafica"])
 
     # Calcolo per-reattore UNA volta sola (condiviso da palier e tabella)
     as_of = pd.Timestamp(date_to).year
@@ -826,8 +826,61 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
             "Seleziona 4 reattori nella sidebar per vedere quanto si riduce la flessibilità."
         )
 
-    # --- CAPACITÀ DI MODULAZIONE (tre scale) ---
+    # --- IMPRONTA DEL SOLARE ---
     with tabs[1]:
+        st.caption(
+            "Il **coupling** tra nucleare e fotovoltaico, misurato: come è cambiata "
+            "la forma della giornata del parco francese al crescere del solare. "
+            "Ogni curva è normalizzata sulla media di quell'anno (100 = media annua), "
+            "così si confronta la *forma*, non il livello."
+        )
+        dy = lf.diurnal_by_year(hourly, selected)
+        imp = lf.solar_imprint(dy)
+        if dy.empty or imp.empty:
+            st.info("Servono almeno un anno completo di dati per il confronto.")
+        else:
+            first, last = int(imp["year"].iloc[0]), int(imp["year"].iloc[-1])
+            g0 = float(imp["gap"].iloc[0]); g1 = float(imp["gap"].iloc[-1])
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"Divario a mezzogiorno {first}", f"{g0:+.1f} pt",
+                      help="Produzione media 12–15 meno quella 2–5 (notte)")
+            c2.metric(f"Divario a mezzogiorno {last}", f"{g1:+.1f} pt",
+                      delta=f"{g1-g0:+.1f} pt", delta_color="inverse")
+            c3.metric("Inversione", "sì ↩️" if (g0 > 0 and g1 < 0) else "non ancora",
+                      help="Da 'produco più a mezzogiorno' a 'produco meno'")
+
+            st.markdown(f"#### La giornata del parco: {first} vs {last}")
+            st.caption("In grigio gli anni intermedi. La fascia gialla sono le ore di sole.")
+            fig = charts.diurnal_years_overlay(dy, highlight=(first, last))
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("#### Il divario mezzogiorno − notte, anno per anno")
+            st.caption("Sopra lo zero: regime pre-solare, il nucleare produce di più "
+                       "nelle ore centrali. Sotto: si fa da parte per il fotovoltaico.")
+            fig = charts.solar_imprint_bars(imp)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+
+            if g0 > 0 and g1 < 0:
+                st.info(
+                    f"**La curva si è ribaltata.** Nel {first} il parco produceva "
+                    f"**{g0:+.1f} punti** in più a mezzogiorno rispetto alla notte; "
+                    f"nel {last} ne produce **{g1:+.1f}**. Il minimo giornaliero si è "
+                    "spostato dalla notte alle ore centrali: è l'impronta del "
+                    "fotovoltaico sul nucleare. Nucleare e rinnovabili non sono "
+                    "alternativi — stanno già convivendo, ora per ora. "
+                    "*Quanto* possano farlo lo dice il tab Capacità di modulazione."
+                )
+            else:
+                st.info(
+                    f"Divario passato da {g0:+.1f} a {g1:+.1f} punti tra {first} e {last}. "
+                    "Con la selezione corrente l'inversione non è (ancora) visibile: "
+                    "prova a selezionare tutta la flotta e il periodo completo."
+                )
+
+    # --- CAPACITÀ DI MODULAZIONE (tre scale) ---
+    with tabs[2]:
         st.caption(
             "La domanda chiave: **quanto può modulare il parco?** Ma \"quanto\" ha tre "
             "risposte diverse a seconda della scala temporale. Ore con dati mancanti "
@@ -877,7 +930,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
             )
 
     # --- CONFRONTO PER PALIER (blocco) ---
-    with tabs[2]:
+    with tabs[3]:
         st.caption("Ragionamento per **blocco di palier**: ogni generazione di progetto "
                    "confrontata come gruppo. I numeri sopra ogni barra sono le medie di gruppo.")
         # aggrega per palier dai calcoli già fatti
@@ -927,7 +980,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
                        "P4→P'4 (1300 MW), N4 (1450 MW), EPR (1600 MW).")
 
     # --- SICCITÀ & VINCOLI AMBIENTALI ---
-    with tabs[3]:
+    with tabs[4]:
         st.caption(
             "Indisponibilità dovute a **cause ambientali**: temperatura e portata "
             "dei fiumi, ondate di calore, siccità. I dati non hanno un'etichetta "
@@ -982,7 +1035,7 @@ def render_fleet(selected, hourly, nominal, date_from, date_to, unavail_all=None
                              use_container_width=True, height=300, hide_index=True)
 
     # --- REATTORI & ANAGRAFICA ---
-    with tabs[4]:
+    with tabs[5]:
         st.markdown("#### Anagrafica: età e vita operativa (colore = palier)")
         fig = charts.fleet_timeline(enriched, as_of=as_of)
         if fig:

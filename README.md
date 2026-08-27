@@ -278,3 +278,29 @@ sito più colpito.
 > La categoria include anche vincoli ambientali non climatici (alghe, detriti alle
 > prese d'acqua): i numeri vanno letti come "vincoli ambientali", di cui caldo e
 > magra dei fiumi sono la componente dominante estiva.
+
+---
+
+## ☀️ L'impronta del solare (coupling nucleare–rinnovabili)
+
+Tab dedicato nella vista flotta: come è cambiata la **forma della giornata** del
+parco francese al crescere del fotovoltaico. Ogni anno è normalizzato sulla propria
+media (100 = media annua), così si confronta la forma e non il livello.
+
+Il risultato, sul parco 2015–2026: **la curva si è ribaltata**.
+
+| Anno | Divario mezzogiorno − notte |
+|------|-----------------------------|
+| 2015 | **+3,5** punti |
+| 2020 | +2,0 |
+| 2023 | +0,2 |
+| 2025 | **−5,8** |
+| 2026 | **−7,6** |
+
+Fino al 2022 il nucleare francese produceva *più* nelle ore centrali che di notte.
+Dal 2024 produce **meno**: il minimo giornaliero si è spostato dalla notte a
+mezzogiorno, quando il fotovoltaico copre la domanda.
+
+È la prova, ora per ora, che nucleare e rinnovabili **non sono alternativi**: la
+convivenza è già in atto. *Quanto* possa spingersi lo dice il tab
+**Capacità di modulazione** (~3,6 GW sostenibili al giorno contro un picco di ~18).
